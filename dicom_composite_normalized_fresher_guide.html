@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>DICOM Composite & Normalized Operations — Fresher Learning Guide</title>
+<style>
+:root{--bg:#0b1020;--panel:#121a2e;--panel2:#18233d;--text:#e8eefc;--muted:#aebbd6;--accent:#62b6ff;--green:#67d69b;--orange:#ffbd66;--red:#ff7777;--line:#2d3b5d}
+*{box-sizing:border-box} body{margin:0;background:var(--bg);color:var(--text);font-family:Inter,Segoe UI,Arial,sans-serif;line-height:1.55}
+header{padding:42px 7%;background:linear-gradient(135deg,#111c38,#0b1020);border-bottom:1px solid var(--line)}
+h1{font-size:clamp(30px,5vw,52px);margin:0 0 12px} h2{margin-top:44px;color:#fff;border-bottom:1px solid var(--line);padding-bottom:8px} h3{color:var(--accent);margin-top:30px}
+p{color:var(--muted)} .lead{font-size:20px;max-width:1000px}.badge{display:inline-block;padding:5px 10px;border:1px solid var(--line);border-radius:999px;margin:4px;font-size:13px;color:var(--green)}
+main{max-width:1200px;margin:auto;padding:20px 5% 70px}.card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:22px;margin:18px 0;box-shadow:0 8px 28px #0003}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:16px}.mini{background:var(--panel2);padding:16px;border-radius:10px}
+table{width:100%;border-collapse:collapse;margin:18px 0;background:var(--panel)}th,td{border:1px solid var(--line);padding:10px;vertical-align:top}th{background:#1d2a47;text-align:left}code,.code{background:#09101e;border:1px solid var(--line);padding:2px 5px;border-radius:5px;color:#bfe2ff}.formula{font-family:ui-monospace,monospace;background:#09101e;border-left:4px solid var(--accent);padding:14px;overflow:auto;color:#dceaff}
+canvas{width:100%;height:auto;background:#07101d;border:1px solid var(--line);border-radius:10px;margin:10px 0}.caption{font-size:13px;color:var(--muted);text-align:center}
+.note{border-left:4px solid var(--orange);padding:10px 15px;background:#241d0f}.good{border-left-color:var(--green)}.danger{border-left-color:var(--red)}
+details{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px;margin:10px 0}summary{cursor:pointer;color:#fff;font-weight:700}
+.nav{position:sticky;top:0;z-index:3;background:#0b1020eF;border-bottom:1px solid var(--line);padding:9px 5%;overflow:auto;white-space:nowrap}.nav a{color:#bfe2ff;margin-right:18px;text-decoration:none;font-size:13px}
+.quiz{background:#101d33;border:1px solid #38557e;padding:15px;border-radius:10px}.answer{display:none;color:var(--green)}button{background:#17345b;color:#fff;border:1px solid #416b9d;padding:8px 12px;border-radius:7px;cursor:pointer}
+ul{color:var(--muted)} strong{color:#fff}
+footer{text-align:center;color:var(--muted);padding:30px}
+</style>
+</head>
+<body>
+<header>
+<h1>DICOM Composite & Normalized Operations</h1>
+<p class="lead">A fresher-friendly, technically deep visual guide to DIMSE services, why DICOM has Composite and Normalized operations, what happens on the wire, and how to reason about requests, responses, datasets and status codes.</p>
+<span class="badge">DICOM networking</span><span class="badge">DIMSE-C</span><span class="badge">DIMSE-N</span><span class="badge">Illustrative Canvas diagrams</span><span class="badge">Examples + tables</span>
+</header>
+<nav class="nav">
+<a href="#bigpicture">Big picture</a><a href="#composite">Composite</a><a href="#normalized">Normalized</a><a href="#wire">Wire flow</a><a href="#services">Services</a><a href="#examples">Examples</a><a href="#developer">Developer view</a><a href="#quiz">Quiz</a>
+</nav>
+<main>
+<section id="bigpicture">
+<h2>1. Start with the mental model</h2>
+<div class="card">
+<p>Imagine two radiology systems talking to each other. One system says: <strong>“Give me this CT study.”</strong> Another says: <strong>“Store this CT image.”</strong> These are operations performed over a DICOM association.</p>
+<div class="grid">
+<div class="mini"><strong>DIMSE</strong><p>The DICOM Message Service Element is the command-oriented communication mechanism traditionally used over a DICOM network association.</p></div>
+<div class="mini"><strong>Operation</strong><p>An operation is an action such as C-STORE, C-FIND, C-MOVE, N-ACTION or N-GET.</p></div>
+<div class="mini"><strong>Dataset</strong><p>Patient/study/image attributes and sometimes Pixel Data are carried as a DICOM dataset associated with a command.</p></div>
+</div>
+<canvas id="big"></canvas><div class="caption">Illustrative—not a byte-level packet capture.</div>
+</div>
+<h3>The simplest distinction</h3>
+<table><tr><th>Question</th><th>Composite operation</th><th>Normalized operation</th></tr>
+<tr><td>What is the main idea?</td><td>Operate on a <strong>composite DICOM instance</strong>.</td><td>Operate on a <strong>managed object and one defined attribute/action</strong>.</td></tr>
+<tr><td>Typical DIMSE family</td><td>DIMSE-C</td><td>DIMSE-N</td></tr>
+<tr><td>Examples</td><td>C-STORE, C-FIND, C-MOVE, C-GET</td><td>N-GET, N-SET, N-ACTION, N-CREATE, N-DELETE, N-EVENT-REPORT</td></tr>
+<tr><td>Typical mental picture</td><td>“Move/query/store an imaging object or set of objects.”</td><td>“Manage or invoke behavior on a DICOM-defined object.”</td></tr>
+</table>
+<div class="note good"><strong>Important:</strong> “Composite” does not mean “multiple network messages combined together.” It refers to a Composite IOD/instance containing information about multiple aspects of a real-world entity. “Normalized” refers to a different modeling style in which attributes and operations are treated more independently.</div>
+</section>
+
+<section id="composite">
+<h2>2. Composite operations — learn them through one CT study</h2>
+<div class="card">
+<p>A Composite Instance brings together attributes that describe a real-world object at several levels. A CT image can contain Patient, Study, Series and Image-level information in one instance. The operation generally treats that instance as a whole DICOM object.</p>
+<canvas id="compositeCanvas"></canvas>
+<h3>Example: C-STORE</h3>
+<p>A modality or gateway wants PACS to store a CT image. The SCU sends a C-STORE-RQ. The receiver (SCP) processes the request and returns C-STORE-RSP with a status.</p>
+<div class="formula">SCU → C-STORE-RQ + CT DICOM Dataset → SCP
+SCP → C-STORE-RSP + Status → SCU</div>
+<table><tr><th>Piece</th><th>Simple meaning</th><th>Example</th></tr>
+<tr><td>Command</td><td>What operation is requested?</td><td>C-STORE-RQ</td></tr>
+<tr><td>Affected SOP Class UID</td><td>Which kind of object/service is involved?</td><td>CT Image Storage SOP Class</td></tr>
+<tr><td>SOP Instance UID</td><td>Which exact object?</td><td>2.25.xxxxx...</td></tr>
+<tr><td>Dataset</td><td>Object content</td><td>Patient ID, Study UID, Series UID, Rows, Columns, Pixel Data...</td></tr>
+<tr><td>Status</td><td>Outcome</td><td>Success, warning, failure</td></tr></table>
+</div>
+<h3>C-FIND: “Tell me which objects match this query”</h3>
+<div class="card">
+<p>C-FIND is commonly used for query/retrieve workflows. The SCU sends query keys. The SCP may return <strong>zero, one, or many pending responses</strong>, followed by a final response.</p>
+<canvas id="findCanvas"></canvas>
+<div class="formula">C-FIND-RQ (PatientID=123, StudyDate=20260930)
+        ↓
+C-FIND-RSP Pending → Study A
+C-FIND-RSP Pending → Study B
+C-FIND-RSP Pending → Study C
+C-FIND-RSP Final   → Success</div>
+<p>The key learning point is that “response” does not necessarily mean “finished.” A pending response can carry another matching dataset.</p>
+</div>
+<h3>C-MOVE vs C-GET</h3>
+<table><tr><th></th><th>C-MOVE</th><th>C-GET</th></tr>
+<tr><td>Basic idea</td><td>Ask SCP to move matching objects to a destination AE.</td><td>Ask SCP to send matching objects back over the same association.</td></tr>
+<tr><td>Additional destination concept</td><td>Yes — Move Destination AE Title.</td><td>No separate destination AE is specified for the retrieval.</td></tr>
+<tr><td>Typical mental model</td><td>“PACS, send study to Viewer-AE.”</td><td>“PACS, send the study to me.”</td></tr>
+<tr><td>Sub-operations</td><td>Can result in C-STORE sub-operations toward the destination.</td><td>Can result in C-STORE sub-operations over the association.</td></tr>
+</table>
+</section>
+
+<section id="normalized">
+<h2>3. Normalized operations — think “object management API”</h2>
+<div class="card">
+<p>Normalized services are easier to understand if you imagine an object-oriented API. Instead of primarily moving a complete Composite Instance, the operation can target a managed object and perform a defined operation on it.</p>
+<canvas id="normCanvas"></canvas>
+<table><tr><th>Operation</th><th>Plain English</th><th>Analogy</th></tr>
+<tr><td>N-GET</td><td>Read specified attributes of a managed object.</td><td>GET /object/attributes</td></tr>
+<tr><td>N-SET</td><td>Change specified attributes.</td><td>PATCH /object</td></tr>
+<tr><td>N-ACTION</td><td>Request a defined action.</td><td>POST /object/action</td></tr>
+<tr><td>N-CREATE</td><td>Create a managed object.</td><td>POST /objects</td></tr>
+<tr><td>N-DELETE</td><td>Delete a managed object.</td><td>DELETE /object</td></tr>
+<tr><td>N-EVENT-REPORT</td><td>Report an event occurring to/with an object.</td><td>Event notification/webhook</td></tr>
+</table>
+<div class="note"><strong>Do not over-generalize:</strong> DICOM normalized operations are not literally REST APIs. REST is only a teaching analogy. The actual semantics, command fields, SOP Classes and status behavior are defined by DICOM.</div>
+</div>
+<h3>Example: N-GET</h3>
+<div class="card">
+<p>Suppose a defined DICOM service provides a managed object whose attributes can be read. The requester identifies the object and asks for selected attributes.</p>
+<div class="formula">N-GET-RQ
+  Requested SOP Class UID
+  Requested SOP Instance UID
+  Attribute Identifier List
+        ↓
+N-GET-RSP
+  Status
+  Attribute List (if successful)</div>
+<p>The important contrast with C-STORE is that N-GET is fundamentally asking for attributes of a managed object rather than transferring a complete image instance as the primary operation.</p>
+</div>
+<h3>Example: N-ACTION</h3>
+<div class="card">
+<p>N-ACTION is useful when a DICOM-defined object exposes a meaningful action. The requester supplies an Action Type ID and, where defined, an action information dataset.</p>
+<div class="formula">Requester: “Perform Action #1 on this object.”
+             ↓
+N-ACTION-RQ
+             ↓
+Provider: performs defined action
+             ↓
+N-ACTION-RSP + Status + optional response dataset</div>
+</div>
+</section>
+
+<section id="wire">
+<h2>4. What actually happens on the wire?</h2>
+<div class="card">
+<p>Freshers often imagine a DIMSE operation as one packet. It is better to visualize it as a command exchange plus optional datasets, carried inside a DICOM Upper Layer association.</p>
+<canvas id="wireCanvas"></canvas>
+<table><tr><th>Layer</th><th>Role</th></tr>
+<tr><td>Application semantics</td><td>C-STORE, C-FIND, N-GET, N-ACTION, etc.</td></tr>
+<tr><td>DIMSE command</td><td>Identifies request/response, SOP class, message ID, status and other command fields.</td></tr>
+<tr><td>DICOM dataset</td><td>Attributes associated with the command, depending on the operation.</td></tr>
+<tr><td>Presentation context</td><td>Negotiated SOP Class + Transfer Syntax combinations.</td></tr>
+<tr><td>Association</td><td>Negotiated communication relationship between two DICOM AEs.</td></tr>
+<tr><td>Transport</td><td>Traditionally TCP; TLS can be used for secure transport.</td></tr>
+</table>
+</div>
+<h3>Request/response IDs</h3>
+<p>Many DIMSE request commands contain a <strong>Message ID</strong>. The corresponding response identifies the request through a related Message ID. This lets implementations correlate responses with outstanding operations.</p>
+<div class="note good"><strong>Developer rule:</strong> Do not build application logic around “the next message is always the response.” Correct implementations understand DIMSE command semantics, message identifiers, pending/final statuses, and the possibility of multiple responses.</div>
+</section>
+
+<section id="services">
+<h2>5. Service classes: where operations get their meaning</h2>
+<div class="card">
+<p>An operation by itself is not enough. A DICOM Service-Object Pair (SOP) Class combines a defined object model with a set of permitted operations/notifications. The same operation name can have different semantics depending on the SOP Class specification.</p>
+<table><tr><th>Term</th><th>Meaning</th><th>Example mental model</th></tr>
+<tr><td>DIMSE service</td><td>Operation mechanism</td><td>C-STORE</td></tr>
+<tr><td>SOP Class</td><td>Defined DICOM service + object behavior</td><td>CT Image Storage</td></tr>
+<tr><td>SOP Instance</td><td>One concrete object instance</td><td>One particular CT image</td></tr>
+<tr><td>SCU</td><td>Service Class User; invokes service</td><td>Modality sending image</td></tr>
+<tr><td>SCP</td><td>Service Class Provider; provides service</td><td>PACS receiving image</td></tr>
+<tr><td>AE</td><td>Application Entity participating in DICOM networking</td><td>CT_MODALITY / PACS_AE</td></tr>
+</table>
+</div>
+<h3>Common composite DIMSE-C operations</h3>
+<table><tr><th>Operation</th><th>Purpose</th><th>Common example</th></tr>
+<tr><td>C-STORE</td><td>Store an object</td><td>Modality → PACS</td></tr>
+<tr><td>C-FIND</td><td>Query for matching information</td><td>Viewer → PACS</td></tr>
+<tr><td>C-MOVE</td><td>Request retrieval to a destination AE</td><td>Viewer → PACS → Viewer</td></tr>
+<tr><td>C-GET</td><td>Request retrieval back to requester</td><td>Viewer → PACS → Viewer</td></tr>
+<tr><td>C-ECHO</td><td>Verify communication</td><td>Viewer → PACS ping-like test</td></tr></table>
+<h3>Common normalized DIMSE-N operations</h3>
+<table><tr><th>Operation</th><th>Core idea</th></tr>
+<tr><td>N-EVENT-REPORT</td><td>Notify another AE of an event associated with an object.</td></tr>
+<tr><td>N-GET</td><td>Retrieve selected attributes.</td></tr>
+<tr><td>N-SET</td><td>Modify selected attributes.</td></tr>
+<tr><td>N-ACTION</td><td>Invoke a defined action.</td></tr>
+<tr><td>N-CREATE</td><td>Create an object.</td></tr>
+<tr><td>N-DELETE</td><td>Delete an object.</td></tr></table>
+</section>
+
+<section id="examples">
+<h2>6. End-to-end examples</h2>
+<h3>Example A — CT scanner sends an image</h3>
+<div class="card"><canvas id="exA"></canvas><ol><li>Scanner and PACS establish an association.</li><li>They negotiate presentation contexts.</li><li>Scanner sends C-STORE-RQ with the CT image dataset.</li><li>PACS validates/processes/stores the object.</li><li>PACS sends C-STORE-RSP with status.</li></ol></div>
+<h3>Example B — Viewer searches for a patient's studies</h3>
+<div class="card"><canvas id="exB"></canvas><p>The viewer sends C-FIND-RQ with query keys. PACS can return multiple pending C-FIND responses, each carrying a matching dataset, and finally a final C-FIND response.</p></div>
+<h3>Example C — Viewer retrieves a study using C-MOVE</h3>
+<div class="card"><canvas id="exC"></canvas><p>The viewer asks PACS to move matching instances to the viewer's AE. PACS then initiates storage operations toward the move destination. This is why C-MOVE is not simply “download this file.” It is a coordinated DICOM service operation.</p></div>
+<h3>Example D — Normalized operation concept</h3>
+<div class="card"><canvas id="exD"></canvas><p>Imagine a managed DICOM object with defined attributes and actions. An N-GET reads attributes, N-SET changes permitted attributes, and N-ACTION requests a defined action. The exact permitted attributes and semantics are determined by the relevant SOP Class.</p></div>
+</section>
+
+<section id="developer">
+<h2>7. Fresher developer checklist</h2>
+<div class="grid">
+<div class="mini"><strong>1. Identify the SOP Class</strong><p>Never interpret a command only from its name. Determine which SOP Class is being used.</p></div>
+<div class="mini"><strong>2. Identify SCU/SCP</strong><p>Ask who is invoking the service and who provides it.</p></div>
+<div class="mini"><strong>3. Separate command from dataset</strong><p>The command tells you what is happening; the associated dataset carries operation-specific content.</p></div>
+<div class="mini"><strong>4. Handle status correctly</strong><p>Success, warning, failure and pending statuses have different meanings depending on the operation.</p></div>
+<div class="mini"><strong>5. Expect multiple responses</strong><p>C-FIND and retrieval operations can involve multiple pending responses/sub-operations.</p></div>
+<div class="mini"><strong>6. Respect negotiated transfer syntax</strong><p>The association negotiation determines how datasets are encoded and transferred.</p></div>
+</div>
+<h3>Composite vs normalized: interview-ready explanation</h3>
+<div class="card">
+<p><strong>Short answer:</strong> “Composite DIMSE operations are centered around operations on composite DICOM instances, such as storing, querying and retrieving imaging objects. Normalized DIMSE operations are centered around manipulating or invoking behavior on defined managed objects and their attributes, using operations such as N-GET, N-SET, N-ACTION, N-CREATE and N-DELETE.”</p>
+<p><strong>Better answer:</strong> “The distinction is about the DICOM information model and service semantics, not merely about message size. Composite objects combine related information into a single instance, while normalized services expose operations that address object attributes and defined behavior more independently. The actual semantics always come from the relevant DICOM SOP Class.”</p>
+</div>
+</section>
+
+<section id="quiz">
+<h2>8. Self-check quiz</h2>
+<div class="quiz"><p><strong>Q1.</strong> Does C-FIND always produce exactly one response?</p><button onclick="this.nextElementSibling.style.display='block'">Show answer</button><p class="answer">No. It can produce multiple pending responses followed by a final response.</p></div>
+<div class="quiz"><p><strong>Q2.</strong> Is N-GET the same as downloading a DICOM image?</p><button onclick="this.nextElementSibling.style.display='block'">Show answer</button><p class="answer">No. N-GET retrieves defined attributes of a managed object. Image retrieval is a different service scenario.</p></div>
+<div class="quiz"><p><strong>Q3.</strong> Is “Composite” synonymous with “multiple network packets”?</p><button onclick="this.nextElementSibling.style.display='block'">Show answer</button><p class="answer">No. Composite describes the DICOM information/object model; packetization is a lower-level transport/presentation concern.</p></div>
+<div class="quiz"><p><strong>Q4.</strong> What does SCU mean?</p><button onclick="this.nextElementSibling.style.display='block'">Show answer</button><p class="answer">Service Class User—the AE invoking the service.</p></div>
+<div class="quiz"><p><strong>Q5.</strong> Why can C-MOVE result in C-STORE activity?</p><button onclick="this.nextElementSibling.style.display='block'">Show answer</button><p class="answer">Because the requested retrieval is performed by moving matching instances to the specified destination, commonly using C-STORE sub-operations.</p></div>
+</section>
+
+<section>
+<h2>9. One-page memory map</h2>
+<div class="card">
+<table><tr><th>If you hear...</th><th>Think...</th></tr>
+<tr><td>C-STORE</td><td>“Store this DICOM object.”</td></tr>
+<tr><td>C-FIND</td><td>“Which objects match these query keys?”</td></tr>
+<tr><td>C-MOVE</td><td>“Retrieve these objects to that AE.”</td></tr>
+<tr><td>C-GET</td><td>“Retrieve these objects back to me.”</td></tr>
+<tr><td>C-ECHO</td><td>“Can we perform the verification service?”</td></tr>
+<tr><td>N-GET</td><td>“Read attributes.”</td></tr>
+<tr><td>N-SET</td><td>“Modify attributes.”</td></tr>
+<tr><td>N-ACTION</td><td>“Perform this defined action.”</td></tr>
+<tr><td>N-CREATE</td><td>“Create this managed object.”</td></tr>
+<tr><td>N-DELETE</td><td>“Delete this managed object.”</td></tr>
+<tr><td>N-EVENT-REPORT</td><td>“An event occurred.”</td></tr>
+</table>
+</div>
+</section>
+</main>
+<footer>DICOM Composite & Normalized Operations — educational guide. Diagrams are illustrative and intentionally simplify byte-level encoding.</footer>
+<script>
+function setup(id,draw){
+ const c=document.getElementById(id); const d=devicePixelRatio||1; c.width=1100*d;c.height=330*d;c.style.height='330px';const x=c.getContext('2d');x.scale(d,d);draw(x);
+}
+function box(x,y,w,h,t,fill='#142642'){x.fillStyle=fill;x.strokeStyle='#45658f';x.lineWidth=2;x.roundRect(x,y,w,h,12);x.fill();x.stroke();x.fillStyle='#e8eefc';x.font='bold 16px Segoe UI';x.textAlign='center';x.fillText(t,x+w/2,y+h/2+6)}
+function arrow(x,x1,y,x2){x.strokeStyle='#62b6ff';x.lineWidth=3;x.beginPath();x.moveTo(x1,y);x.lineTo(x2,y);x.stroke();x.fillStyle='#62b6ff';x.beginPath();x.moveTo(x2,y);x.lineTo(x2-12,y-7);x.lineTo(x2-12,y+7);x.closePath();x.fill()}
+setup('big',x=>{box(x,40,210,80,'DICOM SCU');box(x,445,210,80,'DICOM SCP');arrow(x,250,65,435);arrow(x,655,95,250);x.fillStyle='#aebbd6';x.font='14px Segoe UI';x.textAlign='center';x.fillText('DIMSE request + dataset',345,55);x.fillText('DIMSE response + status',345,115);box(x,285,190,70,'Association / Presentation Context', '#1b3151')});
+setup('compositeCanvas',x=>{box(x,25,180,60,'Patient');box(x,115,180,60,'Study');box(x,205,180,60,'Series');box(x,295,180,60,'CT Image Instance');arrow(x,375,55,425);box(x,440,240,110,'Composite DICOM Instance');x.fillStyle='#aebbd6';x.font='14px Segoe UI';x.textAlign='left';['Patient ID','Study UID','Series UID','SOP Instance UID','Rows / Columns','Pixel Data'].forEach((t,i)=>x.fillText('• '+t,465,440+i*17))});
+setup('findCanvas',x=>{box(x,20,170,70,'Viewer / SCU');box(x,430,170,70,'PACS / SCP');arrow(x,195,55,420);arrow(x,420,120,195);arrow(x,420,185,195);arrow(x,420,250,195);x.fillStyle='#aebbd6';x.font='14px Segoe UI';x.textAlign='center';x.fillText('C-FIND-RQ: query keys',300,45);x.fillText('Pending: Study A',300,110);x.fillText('Pending: Study B',300,175);x.fillText('Final: Success',300,240)});
+setup('normCanvas',x=>{box(x,30,190,65,'Requester');box(x,450,220,65,'Managed Object');[['N-GET','Read attributes'],['N-SET','Change attributes'],['N-ACTION','Invoke action']].forEach((a,i)=>{arrow(x,225,55+i*70,445);x.fillStyle='#aebbd6';x.font='13px Segoe UI';x.textAlign='center';x.fillText(a[0]+' — '+a[1],335,50+i*70)});});
+setup('wireCanvas',x=>{['Association','Presentation Context','DIMSE Command','Dataset','Status / Response'].forEach((t,i)=>box(x,30+i*210,55,180,75,t,i==2?'#24466d':'#142642'));for(let i=0;i<4;i++)arrow(x,210+i*210,92,225+i*210)});
+setup('exA',x=>{box(x,20,180,70,'CT Scanner');box(x,440,180,70,'PACS');arrow(x,205,55,435);arrow(x,435,120,205);x.fillStyle='#aebbd6';x.font='14px Segoe UI';x.textAlign='center';x.fillText('C-STORE-RQ + image dataset',320,45);x.fillText('C-STORE-RSP + status',320,110)});
+setup('exB',x=>{box(x,20,180,70,'Viewer');box(x,440,180,70,'PACS');arrow(x,205,55,435);[120,175,230].forEach((y,i)=>{arrow(x,435,y,205);x.fillStyle='#aebbd6';x.font='13px Segoe UI';x.textAlign='center';x.fillText('Pending result '+(i+1),320,y-8)});});
+setup('exC',x=>{box(x,10,150,70,'Viewer');box(x,285,150,70,'PACS');box(x,560,150,70,'Destination AE');arrow(x,165,55,280);arrow(x,440,115,555);x.fillStyle='#aebbd6';x.font='13px Segoe UI';x.textAlign='center';x.fillText('C-MOVE-RQ',225,45);x.fillText('C-STORE sub-operations',500,105)});
+setup('exD',x=>{box(x,20,190,70,'Requester');box(x,440,250,100,'Managed DICOM Object');[['N-GET','read'],['N-SET','modify'],['N-ACTION','act']].forEach((a,i)=>{arrow(x,215,55+i*70,435);x.fillStyle='#aebbd6';x.font='13px Segoe UI';x.textAlign='center';x.fillText(a[0]+' → '+a[1],325,48+i*70)});});
+</script>
+</body></html>

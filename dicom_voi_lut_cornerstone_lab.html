@@ -1,0 +1,348 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>DICOM VOI LUT — Cornerstone Interactive Lab</title>
+<style>
+:root{
+  --bg:#0b0f14;--panel:#111821;--panel2:#0d141c;--border:#263241;
+  --text:#e8eef6;--muted:#8ea0b5;--accent:#52b7ff;--accent2:#9b7bff;
+  --good:#45d6a2;--warn:#ffca67;--danger:#ff6b7a;
+}
+*{box-sizing:border-box} body{margin:0;background:var(--bg);color:var(--text);font:14px/1.45 Inter,Segoe UI,Arial,sans-serif}
+header{padding:18px 24px;border-bottom:1px solid var(--border);background:#0d131b;position:sticky;top:0;z-index:5}
+h1{font-size:21px;margin:0 0 4px}.sub{color:var(--muted)}
+main{padding:18px;max-width:1600px;margin:auto}
+.grid{display:grid;grid-template-columns:minmax(360px,1fr) minmax(420px,1.25fr);gap:16px}
+.panel{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:14px;box-shadow:0 8px 25px #0003}
+.title{font-weight:700;margin-bottom:10px}.small{font-size:12px;color:var(--muted)}
+.toolbar{display:flex;gap:9px;flex-wrap:wrap;align-items:center}
+input[type=file],button,select{background:#18222e;color:var(--text);border:1px solid #344354;border-radius:7px;padding:8px 10px}
+button{cursor:pointer}button:hover{border-color:var(--accent)}
+.badge{padding:4px 8px;border-radius:999px;background:#182735;color:#a8d9ff;font-size:12px}
+.renderWrap{background:#05080c;border-radius:8px;min-height:520px;display:flex;align-items:center;justify-content:center;overflow:hidden;border:1px solid #202b38}
+#dicomViewport{width:100%;height:520px;position:relative;background:#000;overflow:hidden}
+#dicomViewport canvas{max-width:100%}
+.controls{display:grid;grid-template-columns:repeat(2,minmax(220px,1fr));gap:10px;margin-top:12px}
+.control{background:var(--panel2);padding:10px;border-radius:8px;border:1px solid #202b37}
+.control label{display:flex;justify-content:space-between;gap:10px;margin-bottom:5px}
+input[type=range]{width:100%}
+.value{color:var(--accent);font-weight:700}
+.formula{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;background:#090d12;padding:10px;border-radius:7px;border:1px solid #202832;overflow:auto;white-space:nowrap}
+.canv{width:100%;height:auto;background:#090d12;border:1px solid #26313d;border-radius:8px;display:block}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:12px}.full{grid-column:1/-1}
+.legend{display:flex;gap:16px;flex-wrap:wrap;margin:7px 0;color:var(--muted);font-size:12px}
+.dot{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:5px;background:var(--accent)}
+.dot2{background:var(--accent2)}.dot3{background:var(--good)}
+.metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:10px}
+.metric{background:#0c1219;border:1px solid #202a35;padding:8px;border-radius:7px}.metric b{display:block;font-size:16px}
+.status{margin-top:9px;color:var(--muted);min-height:20px}
+.note{border-left:3px solid var(--accent);padding:8px 10px;background:#0c151e;color:#b8c7d8;margin-top:10px}
+@media(max-width:1000px){.grid{grid-template-columns:1fr}.controls{grid-template-columns:1fr}.two{grid-template-columns:1fr}.metrics{grid-template-columns:repeat(2,1fr)}}
+</style>
+</head>
+<body>
+<header>
+  <h1>DICOM VOI LUT Interactive Lab</h1>
+  <div class="sub">Cornerstone image loading/rendering + pixel-domain VOI mathematics • Linear exact formula vs Sigmoid • live histogram and curve visualization</div>
+</header>
+
+<main>
+<div class="panel" style="margin-bottom:16px">
+  <div class="toolbar">
+    <input id="fileInput" type="file" accept=".dcm,.dicom,application/dicom,image/*">
+    <button id="sampleBtn">Load built-in demo image</button>
+    <select id="mode">
+      <option value="linear">Linear VOI LUT</option>
+      <option value="sigmoid">Sigmoid VOI LUT</option>
+    </select>
+    <span class="badge">Cornerstone</span>
+    <span id="fileName" class="small">No image loaded</span>
+  </div>
+  <div id="status" class="status">Choose a DICOM file. The demo also works with the built-in synthetic CT-like image.</div>
+</div>
+
+<div class="grid">
+<section class="panel">
+  <div class="title">1. Image Render</div>
+  <div class="renderWrap"><div id="dicomViewport"></div></div>
+  <div class="controls">
+    <div class="control">
+      <label>Window Center <span id="wcVal" class="value">40</span></label>
+      <input id="wc" type="range" min="-1000" max="3000" step="1" value="40">
+    </div>
+    <div class="control">
+      <label>Window Width <span id="wwVal" class="value">400</span></label>
+      <input id="ww" type="range" min="1" max="4000" step="1" value="400">
+    </div>
+  </div>
+  <div class="metrics">
+    <div class="metric"><span class="small">Window low</span><b id="low">-159.5</b></div>
+    <div class="metric"><span class="small">Window high</span><b id="high">239.5</b></div>
+    <div class="metric"><span class="small">VOI input min/max</span><b id="range">—</b></div>
+    <div class="metric"><span class="small">Mode</span><b id="modeMetric">Linear</b></div>
+  </div>
+</section>
+
+<section class="panel">
+  <div class="title">2. VOI LUT Mathematics</div>
+  <div class="small" style="margin-bottom:7px">DICOM-defined linear VOI transformation, with the half-value terms retained exactly:</div>
+  <div class="formula">y = ((x − (WC − 0.5)) / (WW − 1) + 0.5), then clip to [0,1]</div>
+  <div class="small" style="margin:10px 0 7px">Sigmoid VOI LUT (DICOM PS3.3 C.11.2.1.3):</div>
+  <div class="formula">y = 1 / (1 + exp(−4 × (x − WC) / WW))</div>
+  <div class="note">x is the modality-value domain after any required Modality LUT/rescale operation. y is normalized here to 0…1 for visualization; a Presentation LUT/display mapping can follow in a full DICOM pipeline.</div>
+  <div class="two" style="margin-top:12px">
+    <div>
+      <div class="title">VOI transfer curve</div>
+      <canvas id="curveCanvas" class="canv" width="760" height="430"></canvas>
+      <div class="legend">
+        <span><i class="dot"></i>Linear</span>
+        <span><i class="dot2 dot"></i>Sigmoid</span>
+        <span><i class="dot3 dot"></i>Current WC/WW</span>
+      </div>
+    </div>
+    <div>
+      <div class="title">Pixel histogram + active window</div>
+      <canvas id="histCanvas" class="canv" width="760" height="430"></canvas>
+      <div class="small">The shaded region represents the current linear window. Histogram x-axis is modality value; y-axis is pixel count (log-scaled when needed).</div>
+    </div>
+  </div>
+</section>
+
+<section class="panel full">
+  <div class="title">3. Histogram → Window → Display Intuition</div>
+  <canvas id="rangeCanvas" class="canv" width="1500" height="220"></canvas>
+  <div class="small" style="margin-top:6px">The lower bar maps the visible window onto the observed pixel-value distribution. Values left/right of the window are driven toward black/white for linear VOI; sigmoid compresses the transition smoothly around WC.</div>
+</section>
+</div>
+</main>
+
+<script src="https://unpkg.com/dicom-parser@1.8.21/dist/dicomParser.min.js"></script>
+<script src="https://unpkg.com/cornerstone-core@2.6.1/dist/cornerstone.min.js"></script>
+<script src="https://unpkg.com/cornerstone-math@0.1.10/dist/cornerstoneMath.min.js"></script>
+<script src="https://unpkg.com/cornerstone-tools@4.22.1/dist/cornerstoneTools.min.js"></script>
+<script src="https://unpkg.com/cornerstone-wado-image-loader@4.13.2/dist/cornerstoneWADOImageLoader.min.js"></script>
+
+<script>
+(() => {
+"use strict";
+const $ = id => document.getElementById(id);
+let image = null, pixelValues = [], histogram = [], minX = -1024, maxX = 3071;
+let sampleMode = false, lastFile = null;
+
+function setStatus(s){$("status").textContent=s}
+function clamp(v,a,b){return Math.max(a,Math.min(b,v))}
+function voiLinear(x,wc,ww){
+  if(ww <= 1) return x <= wc-0.5 ? 0 : 1;
+  const y=((x-(wc-0.5))/(ww-1)+0.5);
+  return clamp(y,0,1);
+}
+function voiSigmoid(x,wc,ww){
+  return 1/(1+Math.exp(-4*(x-wc)/Math.max(1,ww)));
+}
+function fmt(v){return Number.isFinite(v)?(Math.round(v*10)/10).toLocaleString():"—"}
+
+function configureCornerstone(){
+  try{
+    cornerstoneWADOImageLoader.external.cornerstone = cornerstone;
+    cornerstoneWADOImageLoader.external.dicomParser = dicomParser;
+    cornerstone.enable($("dicomViewport"));
+  }catch(e){setStatus("Cornerstone initialization error: "+e.message)}
+}
+configureCornerstone();
+
+function makeSample(){
+  const W=512,H=512, arr=new Int16Array(W*H);
+  // Synthetic CT-like phantom: air, soft tissue, bone and circular structures.
+  for(let y=0;y<H;y++) for(let x=0;x<W;x++){
+    const dx=x-W/2,dy=y-H/2,r=Math.hypot(dx,dy);
+    let v=-1000 + Math.sin(x*.04)*8 + Math.cos(y*.035)*8;
+    if(r<210) v=40 + Math.sin(x*.07)*10 + Math.cos(y*.05)*8;
+    if(r<145) v=80 + Math.sin(x*.1)*12;
+    if(Math.hypot(dx+75,dy+35)<42) v=180;
+    if(Math.hypot(dx-80,dy-45)<35) v=350;
+    if(Math.hypot(dx+10,dy-85)<24) v=900;
+    if(Math.hypot(dx-5,dy+100)<28) v=-100;
+    if(Math.hypot(dx-145,dy)<18 || Math.hypot(dx+145,dy)<18) v=1100;
+    arr[y*W+x]=Math.round(v);
+  }
+  return {
+    imageId:"sample://ct-phantom",
+    width:W,height:H,getPixelData:()=>arr,
+    minPixelValue:-1000,maxPixelValue:1100,
+    windowCenter:40,windowWidth:400,
+    slope:1,intercept:0,color:false,
+    columnPixelSpacing:1,rowPixelSpacing:1
+  };
+}
+
+function installSample(){
+  image=makeSample(); sampleMode=true; lastFile=null;
+  $("fileName").textContent="Built-in CT-like phantom";
+  pixelValues=Array.from(image.getPixelData());
+  minX=-1000; maxX=1100;
+  $("wc").min=minX; $("wc").max=maxX; $("wc").value=40;
+  $("ww").value=400;
+  rebuildHistogram(); updateAll();
+  // Render sample through a small custom Cornerstone-compatible image object.
+  try{
+    cornerstone.displayImage($("dicomViewport"),image);
+    cornerstone.resize($("dicomViewport"),true);
+    cornerstone.fitToWindow($("dicomViewport"));
+    cornerstone.setViewport($("dicomViewport"),{scale:1,translation:{x:0,y:0},voi:{windowWidth:400,windowCenter:40},invert:false});
+  }catch(e){setStatus("Sample image loaded; custom visualizations active. Cornerstone display note: "+e.message)}
+  setStatus("Built-in synthetic CT-like image loaded. Adjust WC/WW or switch Linear/Sigmoid.");
+}
+
+$("sampleBtn").onclick=installSample;
+
+$("fileInput").addEventListener("change", async e=>{
+  const file=e.target.files[0]; if(!file)return;
+  lastFile=file; sampleMode=false; $("fileName").textContent=file.name;
+  try{
+    const imageId=cornerstoneWADOImageLoader.wadouri.fileManager.add(file);
+    image=await cornerstone.loadImage(imageId);
+    pixelValues=Array.from(image.getPixelData(), v=>Number(v));
+    const slope=image.slope??1, intercept=image.intercept??0;
+    pixelValues=pixelValues.map(v=>v*slope+intercept);
+    minX=Math.floor(Math.min(...pixelValues)); maxX=Math.ceil(Math.max(...pixelValues));
+    $("wc").min=minX; $("wc").max=maxX;
+    $("wc").value=Math.round(image.windowCenter || ((minX+maxX)/2));
+    $("ww").value=Math.max(1,Math.round(image.windowWidth || Math.min(4000,maxX-minX)));
+    cornerstone.displayImage($("dicomViewport"),image);
+    cornerstone.resize($("dicomViewport"),true); cornerstone.fitToWindow($("dicomViewport"));
+    applyCornerstoneVOI();
+    rebuildHistogram(); updateAll();
+    setStatus(`Loaded ${image.width}×${image.height}. Pixel domain shown after slope/intercept = ${image.slope||1}×stored + ${image.intercept||0}.`);
+  }catch(err){
+    console.error(err); setStatus("Could not load this file as DICOM: "+err.message);
+  }
+});
+
+function applyCornerstoneVOI(){
+  if(!image)return;
+  try{
+    const vp=cornerstone.getViewport($("dicomViewport"))||{};
+    vp.voi=vp.voi||{};
+    vp.voi.windowWidth=+$("ww").value;
+    vp.voi.windowCenter=+$("wc").value;
+    cornerstone.setViewport($("dicomViewport"),vp);
+  }catch(e){}
+}
+
+function rebuildHistogram(){
+  if(!pixelValues.length){histogram=[];return}
+  const B=256, mn=minX,mx=maxX, span=Math.max(1,mx-mn);
+  histogram=Array(B).fill(0);
+  for(const v of pixelValues){
+    let b=Math.floor((v-mn)/span*(B-1)); b=clamp(b,0,B-1); histogram[b]++;
+  }
+}
+
+function drawAxes(ctx,w,h,pad,xTitle,yTitle,xMin,xMax){
+  ctx.strokeStyle="#34404d";ctx.fillStyle="#9aa9ba";ctx.lineWidth=1;ctx.font="12px Segoe UI";
+  ctx.beginPath();ctx.moveTo(pad.left,pad.top);ctx.lineTo(pad.left,h-pad.bottom);ctx.lineTo(w-pad.right,h-pad.bottom);ctx.stroke();
+  const ticks=8;
+  for(let i=0;i<=ticks;i++){
+    const t=i/ticks, x=pad.left+t*(w-pad.left-pad.right), val=xMin+t*(xMax-xMin);
+    ctx.strokeStyle="#202a35";ctx.beginPath();ctx.moveTo(x,pad.top);ctx.lineTo(x,h-pad.bottom);ctx.stroke();
+    ctx.fillStyle="#8fa0b2";ctx.textAlign="center";ctx.fillText(Math.round(val).toLocaleString(),x,h-pad.bottom+20);
+  }
+  ctx.save();ctx.translate(13,h/2);ctx.rotate(-Math.PI/2);ctx.textAlign="center";ctx.fillStyle="#aab8c8";ctx.fillText(yTitle,0,0);ctx.restore();
+  ctx.fillStyle="#aab8c8";ctx.textAlign="center";ctx.fillText(xTitle,(pad.left+w-pad.right)/2,h-5);
+}
+
+function drawCurve(){
+ const c=$("curveCanvas"),ctx=c.getContext("2d"),w=c.width,h=c.height;
+ ctx.fillStyle="#090d12";ctx.fillRect(0,0,w,h);
+ const p={left:64,right:24,top:22,bottom:46}; const wc=+$("wc").value,ww=+$("ww").value;
+ let lo=Math.min(minX,wc-ww*1.8), hi=Math.max(maxX,wc+ww*1.8); if(hi-lo<10){lo-=5;hi+=5}
+ drawAxes(ctx,w,h,p,"Modality value x","Normalized output y",lo,hi);
+ const X=t=>p.left+t*(w-p.left-p.right), Y=y=>h-p.bottom-y*(h-p.top-p.bottom);
+ function curve(fn,stroke,lw=3){
+   ctx.strokeStyle=stroke;ctx.lineWidth=lw;ctx.beginPath();
+   for(let i=0;i<=500;i++){let t=i/500,x=lo+t*(hi-lo),y=fn(x,wc,ww);i?ctx.lineTo(X(t),Y(y)):ctx.moveTo(X(t),Y(y))}
+   ctx.stroke();
+ }
+ curve(voiLinear,"#52b7ff",3);curve(voiSigmoid,"#9b7bff",3);
+ const tx=X((wc-lo)/(hi-lo));ctx.strokeStyle="#45d6a2";ctx.setLineDash([7,5]);ctx.lineWidth=2;
+ ctx.beginPath();ctx.moveTo(tx,p.top);ctx.lineTo(tx,h-p.bottom);ctx.stroke();
+ const a=X((wc-ww/2-lo)/(hi-lo)),b=X((wc+ww/2-lo)/(hi-lo));
+ ctx.strokeStyle="#45d6a2";ctx.setLineDash([]);ctx.beginPath();ctx.moveTo(a,h-p.bottom+4);ctx.lineTo(b,h-p.bottom+4);ctx.stroke();
+ ctx.fillStyle="#45d6a2";ctx.textAlign="center";ctx.fillText("WW", (a+b)/2,h-p.bottom+34);
+ ctx.fillText("WC="+fmt(wc),tx,p.top+15);
+}
+
+function drawHistogram(){
+ const c=$("histCanvas"),ctx=c.getContext("2d"),w=c.width,h=c.height;
+ ctx.fillStyle="#090d12";ctx.fillRect(0,0,w,h);
+ const p={left:64,right:24,top:22,bottom:46};
+ drawAxes(ctx,w,h,p,"Modality value","Pixel count",minX,maxX);
+ if(!histogram.length)return;
+ const maxC=Math.max(...histogram,1), logMax=Math.log1p(maxC);
+ const X=v=>p.left+(v-minX)/(maxX-minX)*(w-p.left-p.right);
+ const Ycount=n=>h-p.bottom-(Math.log1p(n)/logMax)*(h-p.top-p.bottom);
+ const wc=+$("wc").value,ww=+$("ww").value, a=wc-ww/2,b=wc+ww/2;
+ ctx.fillStyle="rgba(69,214,162,.10)";ctx.fillRect(X(a),p.top,Math.max(1,X(b)-X(a)),h-p.top-p.bottom);
+ for(let i=0;i<histogram.length;i++){
+   const v=minX+(i/(histogram.length-1))*(maxX-minX), bw=(w-p.left-p.right)/histogram.length;
+   const y=Ycount(histogram[i]);
+   ctx.fillStyle=(v>=a&&v<=b)?"#52b7ff":"#354454";
+   ctx.fillRect(X(v),y,Math.max(1,bw),h-p.bottom-y);
+ }
+ ctx.strokeStyle="#45d6a2";ctx.setLineDash([7,5]);ctx.lineWidth=2;
+ [a,b].forEach(v=>{const x=X(v);ctx.beginPath();ctx.moveTo(x,p.top);ctx.lineTo(x,h-p.bottom);ctx.stroke()});
+ ctx.setLineDash([]);
+ ctx.fillStyle="#45d6a2";ctx.textAlign="center";ctx.fillText("Window low "+fmt(a),X(a),p.top+15);ctx.fillText("Window high "+fmt(b),X(b),p.top+30);
+}
+
+function drawRange(){
+ const c=$("rangeCanvas"),ctx=c.getContext("2d"),w=c.width,h=c.height;
+ ctx.fillStyle="#090d12";ctx.fillRect(0,0,w,h);
+ const pad=70,y=85,H=44, x0=pad,x1=w-pad, wc=+$("wc").value,ww=+$("ww").value,a=wc-ww/2,b=wc+ww/2;
+ const X=v=>x0+(v-minX)/(maxX-minX)*(x1-x0);
+ const grad=ctx.createLinearGradient(x0,0,x1,0);grad.addColorStop(0,"#000");grad.addColorStop(.5,"#777");grad.addColorStop(1,"#fff");
+ ctx.fillStyle=grad;ctx.fillRect(x0,y,x1-x0,H);
+ ctx.strokeStyle="#3a4654";ctx.strokeRect(x0,y,x1-x0,H);
+ ctx.fillStyle="rgba(69,214,162,.20)";ctx.fillRect(clamp(X(a),x0,x1),y,Math.max(2,clamp(X(b),x0,x1)-clamp(X(a),x0,x1)),H);
+ ctx.strokeStyle="#45d6a2";ctx.lineWidth=3;
+ [a,b].forEach(v=>{const x=clamp(X(v),x0,x1);ctx.beginPath();ctx.moveTo(x,y-18);ctx.lineTo(x,y+H+18);ctx.stroke()});
+ const xwc=clamp(X(wc),x0,x1);ctx.fillStyle="#45d6a2";ctx.beginPath();ctx.arc(xwc,y+H/2,6,0,Math.PI*2);ctx.fill();
+ ctx.fillStyle="#d9e4ef";ctx.font="13px Segoe UI";ctx.textAlign="center";
+ ctx.fillText("Window low  "+fmt(a),clamp(X(a),x0,x1),y+H+40);
+ ctx.fillText("WC  "+fmt(wc),xwc,y-25);ctx.fillText("Window high  "+fmt(b),clamp(X(b),x0,x1),y+H+58);
+ ctx.fillStyle="#899bad";ctx.textAlign="left";ctx.fillText("BLACK",x0,y-25);
+ ctx.textAlign="right";ctx.fillText("WHITE",x1,y-25);
+ // small histogram silhouette
+ if(histogram.length){
+   const mh=Math.max(...histogram,1);
+   ctx.beginPath();
+   for(let i=0;i<histogram.length;i++){const xx=x0+i/(histogram.length-1)*(x1-x0), yy=y-3-(histogram[i]/mh)*35;i?ctx.lineTo(xx,yy):ctx.moveTo(xx,yy)}
+   ctx.strokeStyle="#52b7ff";ctx.lineWidth=1.2;ctx.stroke();
+ }
+}
+
+function updateAll(){
+ const wc=+$("wc").value,ww=+$("ww").value;
+ $("wcVal").textContent=fmt(wc);$("wwVal").textContent=fmt(ww);
+ $("low").textContent=fmt(wc-ww/2);$("high").textContent=fmt(wc+ww/2);
+ $("range").textContent=`${fmt(minX)} … ${fmt(maxX)}`;
+ const mode=$("mode").value;$("modeMetric").textContent=mode==="linear"?"Linear":"Sigmoid";
+ drawCurve();drawHistogram();drawRange();
+ if(image && !sampleMode) applyCornerstoneVOI();
+ // For the sigmoid selection, show a visual cue without pretending Cornerstone's native viewport is a sigmoid renderer.
+ if(mode==="sigmoid"){
+   setStatus("Sigmoid selected: the curve/histogram demonstrate sigmoid VOI mathematics. Cornerstone's native viewport is kept on its standard WC/WW linear VOI path; this avoids silently replacing DICOM display behavior.");
+ }else if(image && lastFile){
+   setStatus("Linear VOI selected. Cornerstone viewport WC/WW and the explanatory canvases are synchronized.");
+ }
+}
+$("wc").addEventListener("input",updateAll);$("ww").addEventListener("input",updateAll);$("mode").addEventListener("change",updateAll);
+window.addEventListener("resize",()=>{try{if(image){cornerstone.resize($("dicomViewport"),true);cornerstone.fitToWindow($("dicomViewport"));}}catch(e){}});
+
+installSample();
+})();
+</script>
+</body>
+</html>

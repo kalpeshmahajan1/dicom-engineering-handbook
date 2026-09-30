@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>DVTK — DICOM Validation & Testing Learning Guide</title>
+<style>
+:root{--bg:#09101d;--p:#111b2e;--p2:#17243b;--tx:#e9f0ff;--mut:#adbad2;--a:#65b8ff;--g:#68d6a0;--o:#ffc46b;--r:#ff7777;--ln:#2d3e60}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--tx);font:15px/1.6 Segoe UI,Arial,sans-serif}header{padding:44px 6%;background:linear-gradient(135deg,#142545,#09101d);border-bottom:1px solid var(--ln)}h1{font-size:clamp(32px,5vw,56px);margin:0}h2{margin-top:44px;border-bottom:1px solid var(--ln);padding-bottom:9px}h3{color:var(--a);margin-top:30px}p,li{color:var(--mut)}strong{color:#fff}.lead{font-size:19px;max-width:1000px}.tag{display:inline-block;border:1px solid var(--ln);border-radius:20px;padding:4px 10px;margin:4px;color:var(--g);font-size:12px}.nav{position:sticky;top:0;z-index:4;background:#09101df2;border-bottom:1px solid var(--ln);padding:9px 5%;white-space:nowrap;overflow:auto}.nav a{color:#bfe2ff;text-decoration:none;margin-right:18px;font-size:13px}main{max-width:1220px;margin:auto;padding:10px 5% 70px}.card{background:var(--p);border:1px solid var(--ln);border-radius:13px;padding:20px;margin:16px 0}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(245px,1fr));gap:14px}.mini{background:var(--p2);border-radius:10px;padding:15px}table{width:100%;border-collapse:collapse;margin:16px 0;background:var(--p)}th,td{border:1px solid var(--ln);padding:9px;vertical-align:top}th{background:#1c2b47;text-align:left}.note{border-left:4px solid var(--o);background:#251d10;padding:12px 15px;margin:15px 0}.good{border-color:var(--g);background:#0f251d}.danger{border-color:var(--r);background:#281414}.code{background:#070d17;border:1px solid var(--ln);border-radius:7px;padding:13px;white-space:pre-wrap;color:#cce6ff;font-family:Consolas,monospace}.formula{font-family:Consolas,monospace;background:#070d17;border-left:4px solid var(--a);padding:12px;overflow:auto}canvas{width:100%;height:auto;background:#07101a;border:1px solid var(--ln);border-radius:9px;margin:9px 0}.cap{text-align:center;color:var(--mut);font-size:12px}details{background:var(--p);border:1px solid var(--ln);border-radius:9px;margin:9px 0;padding:11px}summary{font-weight:700;cursor:pointer}.quiz{background:#102038;border:1px solid #3c6090;border-radius:9px;padding:13px;margin:10px 0}button{background:#17395f;border:1px solid #5078a7;color:white;padding:7px 11px;border-radius:6px}.ans{display:none;color:var(--g)}footer{text-align:center;padding:30px;color:var(--mut)}
+</style></head>
+<body>
+<header><h1>DVTK: DICOM Validation & Testing</h1>
+<p class="lead">A practical, visual learning guide for freshers: what DVTK is, why DICOM validation is difficult, important tools and concepts, how to validate files and network services, how to interpret errors, and how to build repeatable DICOM conformance tests.</p>
+<span class="tag">DICOM Validation</span><span class="tag">DVTK</span><span class="tag">IOD / Modules</span><span class="tag">DIMSE</span><span class="tag">Storage Commitment</span><span class="tag">Test Automation</span></header>
+<nav class="nav"><a href="#start">Start</a><a href="#concepts">Concepts</a><a href="#tools">Tools</a><a href="#workflow">Workflow</a><a href="#file">File validation</a><a href="#network">Network</a><a href="#commit">Storage Commitment</a><a href="#errors">Errors</a><a href="#automation">Automation</a><a href="#practice">Practice</a></nav>
+<main>
+
+<section id="start"><h2>1. What problem does DVTK solve?</h2>
+<div class="card"><p>DICOM is not merely “a file format”. A valid object must satisfy several layers of rules: tags must be encoded correctly, values must obey their VR/VM, required modules must be present, conditional attributes may be required depending on circumstances, UIDs must be valid, sequences must follow their definitions, and network services must follow the negotiated DICOM service contract.</p>
+<canvas id="overview"></canvas><div class="cap">Validation is layered: encoding → data dictionary → IOD/modules → service behavior → interoperability.</div></div>
+<div class="grid"><div class="mini"><strong>File validation</strong><p>Does the dataset conform to DICOM encoding and semantic requirements?</p></div><div class="mini"><strong>Service validation</strong><p>Does an implementation behave correctly as an SCU/SCP for the claimed service?</p></div><div class="mini"><strong>Interoperability</strong><p>Can independently developed systems exchange objects and complete workflows reliably?</p></div><div class="mini"><strong>Regression</strong><p>Does a new software build still satisfy previously verified DICOM behavior?</p></div></div>
+<div class="note good"><strong>Key idea:</strong> A viewer displaying an image successfully does not prove that the DICOM object is standards-conformant. Rendering, parsing, semantic validation and interoperability are different tests.</div>
+</section>
+
+<section id="concepts"><h2>2. Concepts you must know before using a validator</h2>
+<h3>IOD → Modules → Attributes</h3><div class="card"><canvas id="model"></canvas><p>An <strong>IOD</strong> defines the information model for a DICOM object. It is organized into <strong>Modules</strong>. Modules contain attributes with rules such as Type, VR and VM. A SOP Class combines an IOD with service behavior.</p></div>
+<table><tr><th>Concept</th><th>Fresher explanation</th><th>Why it matters in validation</th></tr>
+<tr><td>VR</td><td>Value Representation: how an attribute's value is encoded/interpreted.</td><td>Wrong VR can make a dataset invalid or ambiguous.</td></tr>
+<tr><td>VM</td><td>Value Multiplicity: how many values an attribute may contain.</td><td>One value vs multiple values is part of the standard contract.</td></tr>
+<tr><td>Type 1</td><td>Required and must have a value.</td><td>Missing/empty values are errors.</td></tr>
+<tr><td>Type 2</td><td>Required, but value may be empty when permitted.</td><td>Presence itself is required.</td></tr>
+<tr><td>Type 3</td><td>Optional.</td><td>Absence normally is not a conformance error.</td></tr>
+<tr><td>1C / 2C</td><td>Conditional variants of Type 1/2.</td><td>Validator must consider the condition.</td></tr>
+<tr><td>Sequence</td><td>An attribute containing nested DICOM Items.</td><td>Nested IOD/module rules must also be satisfied.</td></tr>
+<tr><td>Transfer Syntax</td><td>Defines encoding details such as byte ordering and compression.</td><td>Parser/validator must interpret bytes correctly.</td></tr></table>
+<div class="note"><strong>Common beginner mistake:</strong> “The tag exists, therefore it is valid.” Existence is only one question. You must also consider VR, VM, value validity, Type, conditions, context and the relevant SOP Class.</div>
+
+<h3>Part 5 vs Part 6 vs Part 3</h3><table><tr><th>Standard area</th><th>Think of it as</th></tr><tr><td>DICOM Part 5</td><td>How datasets and values are encoded.</td></tr><tr><td>DICOM Part 6</td><td>The data dictionary: tags, names, VR, VM, retired status, etc.</td></tr><tr><td>DICOM Part 3</td><td>IODs, Modules and attribute requirements for information objects.</td></tr><tr><td>DICOM Part 4</td><td>Service Class specifications and DIMSE behavior.</td></tr></table>
+</section>
+
+<section id="tools"><h2>3. DVTK tool ecosystem — understand the job, not just the executable</h2>
+<div class="card"><p>DVTK has historically been used as a DICOM validation/test environment and includes utilities/components for inspecting, validating and exercising DICOM implementations. Exact executable names and packaging can differ by DVTK release/distribution, so always map the tool to the version you have installed rather than memorizing a command from an unrelated release.</p>
+<table><tr><th>Tool/category</th><th>Purpose</th><th>Use it when...</th></tr>
+<tr><td>DICOM object validator / validator GUI</td><td>Validate a DICOM object against dictionary/IOD/module rules.</td><td>You receive a DICOM file and need standards feedback.</td></tr>
+<tr><td>DICOM dump / inspection utilities</td><td>Inspect tags, values, sequences and encoding.</td><td>You need to understand what the validator is complaining about.</td></tr>
+<tr><td>DIMSE test tools</td><td>Exercise DICOM network services as SCU/SCP.</td><td>You are testing C-ECHO, C-STORE, C-FIND, C-MOVE or related services.</td></tr>
+<tr><td>Validation framework/test cases</td><td>Run repeatable conformance scenarios.</td><td>You need regression or formal implementation testing.</td></tr>
+<tr><td>Log/report output</td><td>Record requests, responses, statuses and validation findings.</td><td>You need evidence for debugging or certification.</td></tr></table>
+<div class="note danger"><strong>Important:</strong> DVTK is a testing/validation ecosystem, not a magic “DICOM correct” button. A successful validator run does not replace clinical workflow testing, interoperability testing, performance testing or review of your Conformance Statement.</div></div>
+</section>
+
+<section id="workflow"><h2>4. The complete DVTK testing process</h2>
+<div class="card"><canvas id="process"></canvas>
+<ol><li><strong>Define the claim:</strong> What SOP Classes, Transfer Syntaxes and services does the product claim?</li><li><strong>Collect representative objects:</strong> normal, boundary, optional and problematic cases.</li><li><strong>Validate encoding:</strong> file meta information, transfer syntax, VR, lengths, sequences.</li><li><strong>Validate information model:</strong> SOP Class → IOD → Modules → attribute requirements.</li><li><strong>Test DIMSE behavior:</strong> associations, negotiation, commands, responses, status handling.</li><li><strong>Test negative cases:</strong> invalid data, unsupported presentation context, malformed requests, wrong conditions.</li><li><strong>Compare with expected behavior:</strong> expected status, logs, stored result, response dataset.</li><li><strong>Automate and regress:</strong> every release repeats the important suite.</li></ol></div>
+<h3>Golden test strategy</h3><table><tr><th>Test group</th><th>Example</th><th>Expected evidence</th></tr><tr><td>Happy path</td><td>Valid CT Image Storage</td><td>Accepted/stored successfully</td></tr><tr><td>Boundary</td><td>Large pixel data, long values where permitted</td><td>Correct handling without corruption</td></tr><tr><td>Conditional</td><td>1C attribute with condition true/false</td><td>Presence follows condition</td></tr><tr><td>Negative</td><td>Invalid UID or VR</td><td>Correct rejection/diagnostic</td></tr><tr><td>Interoperability</td><td>Third-party object → viewer/PACS</td><td>Correct parse/render/workflow</td></tr></table>
+</section>
+
+<section id="file"><h2>5. DICOM file validation — step by step</h2>
+<h3>Layer 1 — File Meta Information</h3><div class="card"><p>The File Meta Information is the header associated with a Part 10 file. It helps a reader determine how the following dataset is encoded. Typical items include Media Storage SOP Class UID, Media Storage SOP Instance UID, Transfer Syntax UID and Implementation Class UID.</p><div class="formula">Part 10 file
+  ├── 128-byte preamble
+  ├── "DICM"
+  ├── File Meta Information
+  └── DICOM Data Set</div></div>
+<h3>Layer 2 — Data dictionary / encoding</h3><div class="card"><p>Check tag encoding, VR, value length, character representation, sequence delimiters where applicable, and Transfer Syntax interpretation. A dataset that visually “looks like text” can still be byte-level invalid.</p></div>
+<h3>Layer 3 — IOD/module validation</h3><div class="card"><canvas id="iodcheck"></canvas><p>Now ask: “For this SOP Class, which modules are required, and what does each attribute require?” This is where a missing Type 1 attribute becomes a semantic conformance issue rather than merely a parsing issue.</p></div>
+<h3>Layer 4 — Pixel Data</h3><div class="card"><p>Pixel validation needs its own mindset: Samples per Pixel, Photometric Interpretation, Rows, Columns, Bits Allocated, Bits Stored, High Bit, Pixel Representation and Planar Configuration (where applicable) must be coherent. For compressed transfer syntaxes, encapsulation and codec behavior also matter.</p><div class="note"><strong>Clinical caution:</strong> “The image displays” is not enough. Incorrect pixel metadata can produce a visually plausible but clinically wrong rendering.</div></div>
+</section>
+
+<section id="network"><h2>6. DVTK-style network testing: think in layers</h2>
+<div class="card"><canvas id="network"></canvas><p>For network testing, separate association negotiation from DIMSE service behavior. First prove the two AEs can negotiate a usable presentation context. Then test the actual service and its status behavior.</p></div>
+<table><tr><th>Stage</th><th>Question</th><th>Example failure</th></tr><tr><td>TCP/TLS</td><td>Can the endpoints establish transport?</td><td>Port blocked / TLS mismatch</td></tr><tr><td>Association</td><td>Do AEs accept the association?</td><td>Calling AE rejected</td></tr><tr><td>Presentation Context</td><td>Was the required SOP Class + Transfer Syntax accepted?</td><td>No acceptable context</td></tr><tr><td>DIMSE</td><td>Does the command work?</td><td>Wrong command/status behavior</td></tr><tr><td>Dataset</td><td>Is the exchanged dataset valid?</td><td>Missing/invalid required attributes</td></tr><tr><td>Workflow</td><td>Does the real operation complete?</td><td>Stored but not retrievable/renderable</td></tr></table>
+<h3>C-ECHO</h3><div class="formula">SCU → A-ASSOCIATE-RQ
+SCP → A-ASSOCIATE-AC
+SCU → C-ECHO-RQ
+SCP → C-ECHO-RSP (Success)
+SCU → A-RELEASE-RQ
+SCP → A-RELEASE-RP</div>
+<p>C-ECHO is useful as a connectivity/service sanity check. It does not prove that C-STORE, C-FIND, C-MOVE, Storage Commitment or image decoding work.</p>
+<h3>C-STORE test</h3><div class="formula">Association
+   ↓
+C-STORE-RQ + dataset
+   ↓
+SCP validates / processes / stores
+   ↓
+C-STORE-RSP + status</div>
+</section>
+
+<section id="commit"><h2>7. Storage Commitment — a practical validation workflow</h2>
+<div class="card"><p>Storage Commitment is often misunderstood as “PACS says the image was stored.” Its purpose is to provide a DICOM-defined commitment mechanism indicating that the receiving system accepts responsibility for retaining referenced instances according to the service semantics.</p><canvas id="commitCanvas"></canvas></div>
+<h3>Why this is harder than C-STORE</h3><table><tr><th>C-STORE</th><th>Storage Commitment</th></tr><tr><td>Transfers an instance.</td><td>Requests commitment for referenced instances.</td></tr><tr><td>Response is tied to the store operation.</td><td>Commitment result involves a separate event-report mechanism.</td></tr><tr><td>Usually immediate service response.</td><td>Commitment can be asynchronous.</td></tr></table>
+<div class="formula">1. SCU sends N-ACTION (Storage Commitment Request)
+2. SCP acknowledges the action
+3. Later: SCP sends N-EVENT-REPORT
+4. Event report identifies success/failure of referenced instances
+5. SCU responds to the event report</div>
+<div class="note good"><strong>Testing insight:</strong> A Storage Commitment test must verify both the immediate N-ACTION response and the later N-EVENT-REPORT transaction. Testing only the first response is incomplete.</div>
+</section>
+
+<section id="errors"><h2>8. How to read validator errors like a developer</h2>
+<div class="card"><p>Do not immediately fix the tag named in an error. First classify the error. This avoids “whack-a-mole” debugging.</p><table><tr><th>Error class</th><th>Ask</th><th>Typical investigation</th></tr><tr><td>Encoding</td><td>Can the bytes be parsed?</td><td>Transfer Syntax, VR, lengths, delimiters</td></tr><tr><td>Dictionary</td><td>Is the tag known/defined correctly?</td><td>Tag, VR, VM, retired/private status</td></tr><tr><td>IOD</td><td>Is this the right object model?</td><td>SOP Class and IOD definition</td></tr><tr><td>Module</td><td>Is the required module present?</td><td>Part 3 module table</td></tr><tr><td>Type</td><td>Should this attribute exist/have a value?</td><td>Type 1/2/3 and conditional rule</td></tr><tr><td>Value</td><td>Is the value legal?</td><td>Defined terms, ranges, UID syntax, dates, enumerations</td></tr><tr><td>Service</td><td>Did the network operation follow the SOP Class?</td><td>Command, status, role, negotiation</td></tr></table></div>
+<h3>Example debugging thought process</h3><div class="card"><p><strong>Finding:</strong> “Required attribute missing.”</p><ol><li>Identify SOP Class.</li><li>Find the attribute in the applicable module table.</li><li>Confirm whether it is Type 1, 1C, 2, 2C or 3.</li><li>If conditional, determine whether the condition is true for this object.</li><li>Check whether your generator incorrectly omitted it.</li><li>Fix the producer—not merely the validator configuration—unless the validator itself is demonstrably wrong/outdated.</li></ol></div>
+</section>
+
+<section id="automation"><h2>9. Building a DVTK regression pipeline</h2>
+<div class="card"><canvas id="auto"></canvas><div class="formula">Build → Generate DICOM test objects → Validate files → Run DIMSE tests
+     → Capture logs/status → Compare expected results → Publish report → Gate release</div></div>
+<h3>Recommended test corpus</h3><table><tr><th>Corpus</th><th>Purpose</th></tr><tr><td>Golden valid objects</td><td>Ensure normal workflows remain valid.</td></tr><tr><td>Known-invalid objects</td><td>Ensure validators/receivers reject or report correctly.</td></tr><tr><td>Vendor variation objects</td><td>Expose real interoperability differences.</td></tr><tr><td>Modality diversity</td><td>CT, MR, US, XA, CR/DR, NM, PT, etc.</td></tr><tr><td>Compression corpus</td><td>Uncompressed + supported compressed Transfer Syntaxes.</td></tr><tr><td>Edge cases</td><td>Sequences, character sets, large values, unusual but valid combinations.</td></tr></table>
+<div class="note"><strong>Regression principle:</strong> Save the input object, validator version, test configuration, output/log, expected result and software build version. Without these, a test result is difficult to reproduce.</div>
+</section>
+
+<section id="practice"><h2>10. Practical fresher exercises</h2>
+<details><summary>Exercise 1 — Find the SOP Class</summary><p>Open a valid DICOM object. Identify SOP Class UID, SOP Instance UID, Study Instance UID and Transfer Syntax UID. Explain what each identifies.</p></details>
+<details><summary>Exercise 2 — Find a Type 1 attribute</summary><p>Choose the object's IOD and trace one Type 1 attribute from SOP Class → IOD → Module → Attribute. Record why it is required.</p></details>
+<details><summary>Exercise 3 — Break a dataset intentionally</summary><p>Create a test copy and remove/change a required attribute. Run validation and classify the resulting error as encoding, module, type or value-related.</p></details>
+<details><summary>Exercise 4 — C-ECHO vs C-STORE</summary><p>Perform C-ECHO against a test SCP. Then perform C-STORE. Explain why successful C-ECHO cannot prove C-STORE interoperability.</p></details>
+<details><summary>Exercise 5 — Storage Commitment</summary><p>Trace an N-ACTION Storage Commitment Request through its later N-EVENT-REPORT. Identify both transaction directions and statuses.</p></details>
+
+<h2>11. Quiz</h2>
+<div class="quiz"><b>Q1.</b> Does C-ECHO prove that image storage works?<br><button onclick="this.nextElementSibling.style.display='block'">Answer</button><p class="ans">No. It primarily verifies the relevant verification service and connectivity/association behavior.</p></div>
+<div class="quiz"><b>Q2.</b> Why is a Type 2 attribute different from Type 1?<br><button onclick="this.nextElementSibling.style.display='block'">Answer</button><p class="ans">Type 2 requires the attribute to be present, but an empty value may be permitted. Type 1 requires a value.</p></div>
+<div class="quiz"><b>Q3.</b> Why can an image display correctly and still fail DICOM validation?<br><button onclick="this.nextElementSibling.style.display='block'">Answer</button><p class="ans">Rendering success does not establish complete encoding, module, type, conditional or value conformance.</p></div>
+<div class="quiz"><b>Q4.</b> What is the most important first question when a validator says “attribute missing”?<br><button onclick="this.nextElementSibling.style.display='block'">Answer</button><p class="ans">Identify the SOP Class and applicable IOD/module, then determine the attribute's requirement type and any condition.</p></div>
+<div class="quiz"><b>Q5.</b> Why is Storage Commitment a useful advanced test?</b><br><button onclick="this.nextElementSibling.style.display='block'">Answer</button><p class="ans">It exercises an asynchronous DICOM workflow involving N-ACTION and a later N-EVENT-REPORT rather than only a simple request/response.</p></div>
+
+<h2>12. Fresher memory map</h2><div class="card"><table><tr><th>When you see...</th><th>Think...</th></tr><tr><td>IOD</td><td>Information model for an object.</td></tr><tr><td>Module</td><td>Logical group of attributes.</td></tr><tr><td>VR</td><td>How a value is represented/interpreted.</td></tr><tr><td>VM</td><td>How many values are allowed.</td></tr><tr><td>Type 1</td><td>Present + non-empty value required.</td></tr><tr><td>Type 2</td><td>Present; empty may be allowed.</td></tr><tr><td>Type 3</td><td>Optional.</td></tr><tr><td>DVTK</td><td>Use validation/testing to prove conformance and expose interoperability defects.</td></tr><tr><td>C-ECHO</td><td>Verification—not proof of complete PACS interoperability.</td></tr><tr><td>Storage Commitment</td><td>N-ACTION followed by asynchronous N-EVENT-REPORT workflow.</td></tr></table></div>
+</section>
+</main><footer>Educational guide. Tool names, commands and capabilities can vary by DVTK release; consult the documentation shipped with the exact version used by your team. Diagrams are intentionally simplified.</footer>
+<script>
+const DPR=devicePixelRatio||1;
+function setup(id,fn){let c=document.getElementById(id),w=1100,h=330;c.width=w*DPR;c.height=h*DPR;c.style.height=h+'px';let x=c.getContext('2d');x.scale(DPR,DPR);fn(x)}
+function box(x,y,w,h,t,f='#142642'){x.fillStyle=f;x.strokeStyle='#496a95';x.lineWidth=2;x.beginPath();x.roundRect(x,y,w,h,11);x.fill();x.stroke();x.fillStyle='#e9f0ff';x.font='bold 15px Segoe UI';x.textAlign='center';x.fillText(t,x+w/2,y+h/2+5)}
+function arr(x,a,y,b){x.strokeStyle='#65b8ff';x.lineWidth=3;x.beginPath();x.moveTo(a,y);x.lineTo(b,y);x.stroke();x.fillStyle='#65b8ff';x.beginPath();x.moveTo(b,y);x.lineTo(b-12,y-7);x.lineTo(b-12,y+7);x.closePath();x.fill()}
+function txt(x,t,a,y){x.fillStyle='#adbad2';x.font='13px Segoe UI';x.textAlign='center';x.fillText(t,a,y)}
+setup('overview',x=>{['Bytes','Dictionary','IOD/Modules','DIMSE','Workflow'].forEach((t,i)=>box(x,40+i*205,165,70,t,i==2?'#24466d':'#142642'));for(let i=0;i<4;i++)arr(x,205+i*205,75,225+i*205)});
+setup('model',x=>{box(x,25,190,60,'SOP Class');box(x,285,190,60,'IOD');box(x,545,190,60,'Modules');box(x,805,190,190,60,'Attributes');arr(x,215,55,280);arr(x,475,55,540);arr(x,735,55,800);txt(x,'defines service + object',120,115);txt(x,'information model',380,115);txt(x,'required/optional groups',640,115);});
+setup('process',x=>{let a=['Define claim','Collect corpus','Validate files','Test DIMSE','Negative tests','Compare expected','Automate regression'];a.forEach((t,i)=>box(x,20+i*150,90,150,65,t));for(let i=0;i<6;i++)arr(x,170+i*150,122,185+i*150)});
+setup('iodcheck',x=>{box(x,25,90,160,65,'SOP Class');box(x,255,90,160,65,'IOD');box(x,485,90,160,65,'Module');box(x,715,90,160,65,'Attribute');arr(x,185,122,250);arr(x,415,122,480);arr(x,645,122,710);txt(x,'Which object?',105,180);txt(x,'Which model?',335,180);txt(x,'Which rules?',565,180);txt(x,'Does value conform?',795,180)});
+setup('network',x=>{let a=['Transport','Association','Presentation Context','DIMSE','Dataset','Workflow'];a.forEach((t,i)=>box(x,20+i*175,95,155,65,t,i==3?'#24466d':'#142642'));for(let i=0;i<5;i++)arr(x,175+i*175,127,190+i*175)});
+setup('commitCanvas',x=>{box(x,20,95,170,65,'SCU');box(x,465,95,170,65,'SCP');arr(x,195,127,455);txt(x,'N-ACTION: Commitment Request',325,115);arr(x,455,195,195);txt(x,'N-ACTION-RSP',325,185);arr(x,195,265,455);txt(x,'Later: N-EVENT-REPORT',325,255);});
+setup('auto',x=>{let a=['Build','Generate DICOM','Validate','DIMSE tests','Compare','Report / Gate'];a.forEach((t,i)=>box(x,20+i*175,105,155,65,t));for(let i=0;i<5;i++)arr(x,175+i*175,137,190+i*175)});
+</script></body></html>

@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DICOM Modality LUT Circle Visualizer</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: Arial, Helvetica, sans-serif;
+    background: #f4f6f8;
+    color: #1f2937;
+  }
+  .wrap {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 24px;
+  }
+  h1 { margin: 0 0 8px; font-size: 28px; }
+  .intro { margin: 0 0 20px; color: #4b5563; }
+  .controls {
+    background: white;
+    border: 1px solid #d7dce2;
+    border-radius: 10px;
+    padding: 16px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 14px;
+    align-items: end;
+    margin-bottom: 20px;
+  }
+  label {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    font-weight: 600;
+    font-size: 14px;
+  }
+  input {
+    width: 180px;
+    padding: 9px 10px;
+    border: 1px solid #b9c0c8;
+    border-radius: 6px;
+    font-size: 15px;
+  }
+  button {
+    padding: 10px 18px;
+    border: 0;
+    border-radius: 6px;
+    background: #2563eb;
+    color: white;
+    font-weight: 700;
+    cursor: pointer;
+  }
+  button:hover { background: #1d4ed8; }
+  .status {
+    flex: 1 1 100%;
+    color: #4b5563;
+    font-size: 13px;
+  }
+  .panels {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+  }
+  .panel {
+    background: white;
+    border: 1px solid #d7dce2;
+    border-radius: 10px;
+    padding: 16px;
+  }
+  .panel h2 { margin: 0 0 5px; font-size: 20px; }
+  .panel p { margin: 0 0 12px; color: #6b7280; font-size: 13px; }
+  canvas {
+    width: 100%;
+    height: auto;
+    aspect-ratio: 1 / 1;
+    display: block;
+    background: #111;
+    border-radius: 6px;
+    image-rendering: pixelated;
+  }
+  .legend {
+    margin-top: 12px;
+    padding: 10px;
+    background: #f8fafc;
+    border: 1px solid #e5e7eb;
+    border-radius: 6px;
+    font-size: 13px;
+    line-height: 1.5;
+  }
+  code {
+    background: #eef2f7;
+    padding: 2px 4px;
+    border-radius: 3px;
+  }
+  @media (max-width: 800px) {
+    .panels { grid-template-columns: 1fr; }
+    input { width: 100%; }
+  }
+</style>
+</head>
+
+<body>
+<div class="wrap">
+  <h1>DICOM Modality LUT — Concentric Circle Visualizer</h1>
+  <p class="intro">
+    The left image shows stored grayscale pixel values. The right image applies a
+    sampled Modality LUT to the same stored pixel values.
+  </p>
+
+  <div class="controls">
+    <label>
+      Number of MLUT entries
+      <input id="entries" type="number" min="2" max="4096" value="256">
+    </label>
+
+    <label>
+      Starting value
+      <input id="startValue" type="number" min="-32768" max="65535" value="0">
+    </label>
+
+    <button id="renderBtn">Render Images</button>
+
+    <div class="status" id="status"></div>
+  </div>
+
+  <div class="panels">
+    <section class="panel">
+      <h2>Image 1 — Stored Pixel Values</h2>
+      <p>
+        Each concentric ring represents a stored grayscale value.
+        255 is the innermost value and 0 is the outermost.
+      </p>
+      <canvas id="sourceCanvas" width="700" height="700"></canvas>
+      <div class="legend">
+        <strong>Concept:</strong>
+        <code>Stored Pixel Value → Display Gray</code><br>
+        Ring value = grayscale intensity. 255 = white, 0 = black.
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>Image 2 — After Modality LUT</h2>
+      <p>
+        The same stored pixel values are mapped through the generated MLUT.
+        The mapped output value controls the displayed grayscale.
+      </p>
+      <canvas id="lutCanvas" width="700" height="700"></canvas>
+      <div class="legend">
+        <strong>Concept:</strong>
+        <code>Stored Pixel Value → MLUT → Output Pixel Value → Display Gray</code><br>
+        The ring geometry is unchanged; only its grayscale value changes.
+      </div>
+    </section>
+  </div>
+</div>
+
+<script>
+"use strict";
+
+/*
+  Educational visualization.
+
+  Image 1:
+    - Uses 256 concentric rings.
+    - Inner ring = stored value 255.
+    - Outer ring = stored value 0.
+    - Each ring is drawn using its stored value directly as grayscale.
+
+  Image 2:
+    - Uses the exact same 256 stored pixel values.
+    - MLUT is generated from:
+        Number of entries
+        Starting input value
+    - For educational purposes, the LUT maps the LUT input range linearly
+      to output range 0..255.
+    - If the LUT contains fewer than 256 entries, values outside the LUT
+      range are clamped to the nearest LUT entry.
+    - If it contains more than 256 entries, the 256 displayed stored values
+      sample the corresponding LUT positions.
+*/
+
+const sourceCanvas = document.getElementById("sourceCanvas");
+const lutCanvas = document.getElementById("lutCanvas");
+const entriesInput = document.getElementById("entries");
+const startInput = document.getElementById("startValue");
+const status = document.getElementById("status");
+const renderBtn = document.getElementById("renderBtn");
+
+function clamp(v, min, max) {
+  return Math.max(min, Math.min(max, v));
+}
+
+function buildModalityLUT(entryCount, startValue) {
+  const lut = [];
+
+  /*
+    This is deliberately simple and visible:
+      first LUT output = 0
+      last LUT output  = 255
+
+    Thus the MLUT demonstrates how the same stored pixel values can map
+    to a different output grayscale.
+  */
+  for (let i = 0; i < entryCount; i++) {
+    const t = entryCount === 1 ? 0 : i / (entryCount - 1);
+    lut.push(Math.round(t * 255));
+  }
+
+  return lut;
+}
+
+function modalityMap(storedValue, lut, startValue) {
+  let index = storedValue - startValue;
+  index = clamp(index, 0, lut.length - 1);
+  return lut[index];
+}
+
+function drawConcentricImage(canvas, valueFunction) {
+  const ctx = canvas.getContext("2d", { alpha: false });
+  const w = canvas.width;
+  const h = canvas.height;
+  const cx = w / 2;
+  const cy = h / 2;
+
+  ctx.fillStyle = "rgb(0,0,0)";
+  ctx.fillRect(0, 0, w, h);
+
+  /*
+    256 rings:
+      ring 0   = value 255, smallest radius
+      ring 255 = value 0, largest radius
+
+    Radius is deliberately proportional to ring index so the entire
+    0..255 range can be visually inspected.
+  */
+  const maxRadius = Math.min(w, h) * 0.46;
+
+  for (let ring = 255; ring >= 0; ring--) {
+    const radius = maxRadius * (256 - ring) / 256;
+    const storedValue = ring;
+    const displayValue = clamp(
+      Math.round(valueFunction(storedValue)),
+      0,
+      255
+    );
+
+    ctx.beginPath();
+    ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+    ctx.fillStyle =
+      "rgb(" + displayValue + "," + displayValue + "," + displayValue + ")";
+    ctx.fill();
+  }
+
+  /*
+    Mark the center and outer edge very subtly so the orientation is clear.
+  */
+  ctx.strokeStyle = "rgba(255,0,0,0.35)";
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.arc(cx, cy, 2, 0, Math.PI * 2);
+  ctx.stroke();
+}
+
+function render() {
+  let entryCount = parseInt(entriesInput.value, 10);
+  let startValue = parseInt(startInput.value, 10);
+
+  if (!Number.isFinite(entryCount) || entryCount < 2) {
+    entryCount = 256;
+    entriesInput.value = entryCount;
+  }
+
+  if (!Number.isFinite(startValue)) {
+    startValue = 0;
+    startInput.value = startValue;
+  }
+
+  const lut = buildModalityLUT(entryCount, startValue);
+
+  drawConcentricImage(sourceCanvas, storedValue => storedValue);
+
+  drawConcentricImage(
+    lutCanvas,
+    storedValue => modalityMap(storedValue, lut, startValue)
+  );
+
+  const firstInput = startValue;
+  const lastInput = startValue + entryCount - 1;
+
+  status.innerHTML =
+    "MLUT input range: <strong>" +
+    firstInput +
+    "</strong> to <strong>" +
+    lastInput +
+    "</strong>. " +
+    "LUT output range: <strong>0</strong> to <strong>255</strong>. " +
+    "Stored pixel values outside the LUT input range are clamped.";
+}
+
+renderBtn.addEventListener("click", render);
+entriesInput.addEventListener("change", render);
+startInput.addEventListener("change", render);
+</script>
+</body>
+</html>
