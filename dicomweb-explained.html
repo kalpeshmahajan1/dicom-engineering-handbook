@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DICOMweb, explained at the API level</title>
+<style>
+:root{--bg:#f3f6f8;--card:#fff;--ink:#14212b;--mute:#566673;--line:#d5dde3;--a:#0b6e8a;--a2:#b4472a;--ok:#1f7a4d;--code:#0f1c24;--codei:#d6e4ec}
+@media(prefers-color-scheme:dark){:root{--bg:#0d1419;--card:#152029;--ink:#e3edf3;--mute:#93a5b2;--line:#27384500;--line:#273845;--a:#4cc3e0;--a2:#f0916f;--ok:#5fd49a;--code:#081014;--codei:#cfe3ee}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.6 "Segoe UI",system-ui,sans-serif}
+header{background:linear-gradient(135deg,#06303d,#0b6e8a);color:#fff;padding:48px 20px 36px}
+.w{max-width:1080px;margin:auto;padding:0 18px}
+header h1{font:700 clamp(28px,5vw,46px)/1.15 Georgia,serif;margin:0 0 10px}
+header p{max-width:640px;margin:0;opacity:.9}
+nav{position:sticky;top:0;z-index:5;background:var(--card);border-bottom:1px solid var(--line);overflow-x:auto;white-space:nowrap}
+nav a{display:inline-block;padding:12px 14px;color:var(--ink);text-decoration:none;font-size:14px}
+nav a:hover,nav a:focus{color:var(--a);outline:none;box-shadow:inset 0 -3px var(--a)}
+section{padding:36px 0 8px}
+h2{font:700 28px Georgia,serif;margin:0 0 6px}
+h3{margin:22px 0 8px;font-size:18px}
+.lead{color:var(--mute);margin:0 0 16px;max-width:760px}
+.grid{display:grid;gap:14px;grid-template-columns:repeat(auto-fit,minmax(230px,1fr))}
+.card{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:16px}
+.card b{color:var(--a)}
+.tw{overflow-x:auto;border:1px solid var(--line);border-radius:8px;background:var(--card)}
+table{border-collapse:collapse;width:100%;font-size:14px}
+th,td{padding:9px 12px;text-align:left;border-bottom:1px solid var(--line);vertical-align:top}
+th{background:rgba(11,110,138,.1)}
+tr:last-child td{border-bottom:0}
+code,pre{font-family:Consolas,Menlo,monospace;font-size:13px}
+td code{color:var(--a2)}
+pre{background:var(--code);color:var(--codei);padding:14px;border-radius:8px;overflow:auto;margin:8px 0;line-height:1.5}
+.m{display:inline-block;font:700 12px Consolas,monospace;padding:2px 7px;border-radius:4px;color:#fff}
+.GET{background:#1f7a4d}.POST{background:#b4472a}.PUT{background:#7a5a1f}.DELETE{background:#8a1f3a}
+svg text{font-family:"Segoe UI",sans-serif}
+.tabs button,.pre button,.btn{font:inherit;font-size:14px;border:1px solid var(--line);background:var(--card);color:var(--ink);padding:7px 12px;border-radius:6px;cursor:pointer}
+.tabs button.on,.pre button.on,.btn{background:var(--a);color:#fff;border-color:var(--a)}
+.btn{font-weight:600}
+button:focus-visible,select:focus-visible,input:focus-visible{outline:2px solid var(--a2);outline-offset:2px}
+.pre{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px}
+.sim{display:grid;gap:14px;grid-template-columns:1fr 1fr}
+@media(max-width:760px){.sim{grid-template-columns:1fr}}
+.st{display:inline-block;padding:2px 9px;border-radius:12px;font:700 13px Consolas,monospace;background:var(--ok);color:#fff}
+.hier{display:flex;flex-direction:column;gap:6px}
+.hier div{border:2px solid var(--a);border-radius:8px;padding:8px 12px;background:var(--card)}
+.hier div div{margin-top:6px;border-color:var(--a2);margin-left:14px}
+.hier div div div{border-color:var(--ok)}
+.steps{counter-reset:s;list-style:none;padding:0;margin:0}
+.steps li{counter-increment:s;padding:10px 12px 10px 46px;margin-bottom:6px;border:1px solid var(--line);border-radius:8px;background:var(--card);position:relative;transition:.25s}
+.steps li:before{content:counter(s);position:absolute;left:10px;top:9px;width:26px;height:26px;border-radius:50%;background:var(--line);text-align:center;line-height:26px;font-weight:700}
+.steps li.on{border-color:var(--a);box-shadow:0 0 0 2px var(--a)}
+.steps li.on:before{background:var(--a);color:#fff}
+canvas{width:100%;max-width:300px;background:#000;border-radius:8px;image-rendering:pixelated}
+label{font-size:14px;display:block;margin:6px 0 2px}
+input[type=range]{width:100%}
+footer{padding:30px 0 50px;color:var(--mute);font-size:14px}
+</style></head><body>
+<header><div class="w"><h1>DICOMweb, explained at the API level</h1>
+<p>The RESTful way to store, find, fetch and process medical images over HTTP(S). Defined in DICOM PS3.18. This page covers every service, the URL grammar, payloads, status codes, and lets you run a simulated PACS in your browser.</p></div></header>
+<nav><div class="w"><a href="#overview">Overview</a><a href="#arch">Architecture</a><a href="#services">Services</a><a href="#urls">URL grammar</a><a href="#qido">QIDO-RS</a><a href="#wado">WADO-RS</a><a href="#stow">STOW-RS</a><a href="#ups">UPS-RS</a><a href="#json">DICOM JSON</a><a href="#sim">Simulator</a><a href="#viewer">Pixel demo</a><a href="#flow">Viewer flow</a><a href="#code">Code</a><a href="#status">Status codes</a></div></nav>
+<main class="w">
+
+<section id="overview"><h2>What is DICOMweb?</h2>
+<p class="lead">Classic DICOM uses its own binary network protocol (DIMSE over port 104/11112) with associations, AE titles and C-commands. DICOMweb maps the same ideas onto plain HTTP so browsers, mobile apps and cloud services can use them without a DICOM toolkit.</p>
+<div class="tw"><table><tr><th>Classic DICOM</th><th>DICOMweb</th><th>Purpose</th></tr>
+<tr><td>C-STORE</td><td><b>STOW-RS</b> (POST)</td><td>Upload instances</td></tr>
+<tr><td>C-FIND</td><td><b>QIDO-RS</b> (GET)</td><td>Search studies, series, instances</td></tr>
+<tr><td>C-MOVE / C-GET</td><td><b>WADO-RS</b> (GET)</td><td>Retrieve instances, metadata, frames, rendered images</td></tr>
+<tr><td>Modality Worklist, MPPS</td><td><b>UPS-RS</b></td><td>Worklist and procedure step management</td></tr>
+<tr><td>(none)</td><td><b>Delete</b>, <b>Capabilities</b></td><td>Remove objects, discover server features</td></tr></table></div></section>
+
+<section id="arch"><h2>Architecture</h2>
+<p class="lead">Any HTTP client talks to a DICOMweb server (often a gateway in front of a PACS/VNA). The gateway translates to the archive's storage and database.</p>
+<svg viewBox="0 0 860 250" width="100%" role="img" aria-label="Clients call a DICOMweb gateway which fronts PACS storage">
+<defs><marker id="ar" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto"><path d="M0 0L10 4L0 8z" fill="currentColor"/></marker></defs>
+<g fill="none" stroke="currentColor" stroke-width="2" color="#0b6e8a">
+<rect x="10" y="20" width="170" height="60" rx="8" fill="#e8f3f7" stroke="#0b6e8a"/><rect x="10" y="95" width="170" height="60" rx="8" fill="#e8f3f7" stroke="#0b6e8a"/><rect x="10" y="170" width="170" height="60" rx="8" fill="#e8f3f7" stroke="#0b6e8a"/>
+<rect x="330" y="40" width="200" height="170" rx="10" fill="#0b6e8a" stroke="#06303d"/>
+<rect x="690" y="20" width="160" height="90" rx="8" fill="#fbeee9" stroke="#b4472a"/><rect x="690" y="130" width="160" height="90" rx="8" fill="#e9f5ee" stroke="#1f7a4d"/>
+<path d="M180 50H330M180 125H330M180 200H330" marker-end="url(#ar)"/><path d="M530 80H690M530 170H690" marker-end="url(#ar)" color="#b4472a"/></g>
+<g font-size="14" fill="#14212b" text-anchor="middle"><text x="95" y="56">Web viewer (OHIF)</text><text x="95" y="131">AI service</text><text x="95" y="206">Modality / uploader</text>
+<text x="720" y="62" font-size="13">DICOM archive</text><text x="770" y="82" font-size="13">(PACS/VNA)</text><text x="770" y="170" font-size="13">Object store + DB</text></g>
+<g font-size="15" fill="#fff" text-anchor="middle" font-weight="700"><text x="430" y="85">DICOMweb</text><text x="430" y="108">gateway</text></g>
+<g font-size="12" fill="#e3f4fa" text-anchor="middle"><text x="430" y="138">QIDO-RS  WADO-RS</text><text x="430" y="158">STOW-RS  UPS-RS</text><text x="430" y="178">HTTPS + OAuth2</text></g>
+<g font-size="12" fill="#566673" text-anchor="middle"><text x="255" y="44">HTTPS/JSON</text><text x="610" y="70">DIMSE / native</text></g></svg></section>
+
+<section id="services"><h2>The services</h2>
+<div class="grid">
+<div class="card"><b>QIDO-RS</b><br>Query based on ID for DICOM Objects. Returns matching attributes as DICOM JSON.</div>
+<div class="card"><b>WADO-RS</b><br>Web Access to DICOM Objects. Returns full instances, metadata, bulk data, frames, rendered images, thumbnails.</div>
+<div class="card"><b>STOW-RS</b><br>Store Over the Web. Multipart upload of instances, returns a per-instance result.</div>
+<div class="card"><b>UPS-RS</b><br>Unified Procedure Step. Create, claim, update and subscribe to worklist items.</div>
+<div class="card"><b>WADO-URI</b><br>Legacy single-URL retrieval using <code>?requestType=WADO</code> query parameters.</div>
+<div class="card"><b>Delete / Capabilities</b><br>DELETE on study, series, instance. <code>OPTIONS</code> returns a WADL description of support.</div></div></section>
+
+<section id="urls"><h2>URL grammar and resource hierarchy</h2>
+<p class="lead">Everything hangs off a base URL. DICOM identity is the hierarchy Patient (not a URL level) to Study to Series to Instance to Frame.</p>
+<div class="sim"><div class="hier"><div><b>/studies/{StudyInstanceUID}</b><div><b>/series/{SeriesInstanceUID}</b><div><b>/instances/{SOPInstanceUID}</b><br><code>/frames/{1,2,3}</code></div></div></div></div>
+<pre>BASE  = https://pacs.example.org/dicom-web
+
+{BASE}/studies
+{BASE}/studies/1.2.840.113619.2.55.3
+{BASE}/studies/{study}/series
+{BASE}/studies/{study}/series/{series}/instances
+{BASE}/studies/{study}/series/{series}/instances/{sop}
+{BASE}/studies/{study}/series/{series}/instances/{sop}/frames/1
+{BASE}/studies/{study}/metadata
+{BASE}/studies/{study}/rendered
+{BASE}/studies/{study}/thumbnail</pre></div></section>
+
+<section id="qido"><h2>QIDO-RS: search</h2>
+<p class="lead">GET with matching parameters. Responses are <code>application/dicom+json</code> arrays, one object per match. Status 200 with results, 204 when nothing matches.</p>
+<div class="tw"><table><tr><th>Endpoint</th><th>Returns</th></tr>
+<tr><td><span class="m GET">GET</span> <code>/studies</code></td><td>All matching studies</td></tr>
+<tr><td><span class="m GET">GET</span> <code>/series</code></td><td>Series across all studies</td></tr>
+<tr><td><span class="m GET">GET</span> <code>/instances</code></td><td>Instances across all studies</td></tr>
+<tr><td><span class="m GET">GET</span> <code>/studies/{uid}/series</code></td><td>Series in one study</td></tr>
+<tr><td><span class="m GET">GET</span> <code>/studies/{uid}/series/{uid}/instances</code></td><td>Instances in one series</td></tr></table></div>
+<h3>Query parameters</h3>
+<div class="tw"><table><tr><th>Parameter</th><th>Example</th><th>Meaning</th></tr>
+<tr><td>Attribute by keyword or tag</td><td><code>PatientName=Smith*</code> or <code>00100010=Smith*</code></td><td>Match. Wildcards <code>*</code> and <code>?</code>; dates accept ranges <code>20260101-20260930</code></td></tr>
+<tr><td><code>includefield</code></td><td><code>includefield=00081030</code> or <code>all</code></td><td>Extra attributes to return</td></tr>
+<tr><td><code>fuzzymatching</code></td><td><code>true</code></td><td>Server-defined approximate patient name matching</td></tr>
+<tr><td><code>limit</code></td><td><code>25</code></td><td>Max results per page</td></tr>
+<tr><td><code>offset</code></td><td><code>50</code></td><td>Skip results (paging)</td></tr></table></div>
+<pre>GET /studies?ModalitiesInStudy=CT&amp;StudyDate=20260901-20260930&amp;limit=2 HTTP/1.1
+Accept: application/dicom+json</pre></section>
+
+<section id="wado"><h2>WADO-RS: retrieve</h2>
+<div class="tw"><table><tr><th>Resource</th><th>Path suffix</th><th>Accept / returns</th></tr>
+<tr><td>Full instances</td><td><code>/studies/{s}</code>, <code>/series/{r}</code>, <code>/instances/{i}</code></td><td><code>multipart/related; type="application/dicom"</code></td></tr>
+<tr><td>Metadata</td><td><code>/metadata</code></td><td><code>application/dicom+json</code> (no bulk data, with BulkDataURI)</td></tr>
+<tr><td>Bulk data</td><td>BulkDataURI from metadata</td><td><code>multipart/related; type="application/octet-stream"</code></td></tr>
+<tr><td>Frames</td><td><code>/instances/{i}/frames/1,2</code></td><td>Pixel data per frame, e.g. <code>image/jpeg</code>, <code>image/jls</code>, <code>image/jp2</code>, <code>image/jphc</code>, or octet-stream</td></tr>
+<tr><td>Rendered</td><td><code>/rendered</code> (study, series, instance, frame)</td><td><code>image/jpeg</code> or <code>image/png</code>; params <code>viewport</code>, <code>window</code>, <code>quality</code></td></tr>
+<tr><td>Thumbnail</td><td><code>/thumbnail</code></td><td>Small <code>image/jpeg</code></td></tr></table></div>
+<pre>GET /studies/{s}/series/{r}/instances/{i}/frames/1 HTTP/1.1
+Accept: multipart/related; type="image/jls"; transfer-syntax=1.2.840.10008.1.2.4.80
+
+GET .../instances/{i}/rendered?window=40,400,linear&amp;viewport=512,512 HTTP/1.1
+Accept: image/jpeg</pre>
+<p class="lead">Transfer syntax negotiation: if the stored syntax differs from the requested one the server may transcode. Use <code>transfer-syntax=*</code> to accept anything stored.</p></section>
+
+<section id="stow"><h2>STOW-RS: store</h2>
+<p class="lead">POST a <code>multipart/related</code> body. Each part is one DICOM Part 10 file. Post to <code>/studies</code> (any study) or <code>/studies/{uid}</code> (must match).</p>
+<pre>POST /studies HTTP/1.1
+Content-Type: multipart/related; type="application/dicom"; boundary=XYZ
+Accept: application/dicom+json
+
+--XYZ
+Content-Type: application/dicom
+
+&lt;binary Part 10 bytes&gt;
+--XYZ--</pre>
+<p>Response body is a DICOM JSON dataset with <code>ReferencedSOPSequence (00081199)</code> for stored instances and <code>FailedSOPSequence (00081198)</code> with a <code>FailureReason (00081197)</code> for rejects.</p>
+<pre>HTTP/1.1 200 OK   (all stored)   |  202 Accepted (some warnings)  |  409 Conflict (all failed)
+{ "00081199": { "vr":"SQ", "Value":[ { "00081150":{"vr":"UI","Value":["1.2.840.10008.5.1.4.1.1.2"]},
+                                         "00081155":{"vr":"UI","Value":["1.2.3.4.5"]},
+                                         "00081190":{"vr":"UR","Value":["https://pacs.example.org/dicom-web/studies/.../instances/1.2.3.4.5"]} } ] } }</pre></section>
+
+<section id="ups"><h2>UPS-RS: worklist</h2>
+<div class="tw"><table><tr><th>Action</th><th>Request</th></tr>
+<tr><td>Create workitem</td><td><span class="m POST">POST</span> <code>/workitems</code> (or <code>?{UPSInstanceUID}</code>)</td></tr>
+<tr><td>Search</td><td><span class="m GET">GET</span> <code>/workitems?ProcedureStepState=SCHEDULED</code></td></tr>
+<tr><td>Retrieve</td><td><span class="m GET">GET</span> <code>/workitems/{uid}</code></td></tr>
+<tr><td>Update</td><td><span class="m PUT">PUT</span> <code>/workitems/{uid}</code></td></tr>
+<tr><td>Change state</td><td><span class="m PUT">PUT</span> <code>/workitems/{uid}/state</code> with SCHEDULED to IN PROGRESS to COMPLETED or CANCELED (needs Transaction UID)</td></tr>
+<tr><td>Request cancel</td><td><span class="m POST">POST</span> <code>/workitems/{uid}/cancelrequest</code></td></tr>
+<tr><td>Subscribe</td><td><span class="m POST">POST</span> <code>/workitems/{uid}/subscribers/{aet}</code> then notifications over WebSocket</td></tr></table></div></section>
+
+<section id="json"><h2>DICOM JSON model</h2>
+<p class="lead">Each attribute is keyed by its 8-hex-digit tag. Value is an object with <code>vr</code> and either <code>Value</code> (array), <code>BulkDataURI</code> or <code>InlineBinary</code>. Person names use <code>Alphabetic</code>.</p>
+<div class="sim"><pre>{
+ "0020000D": {"vr":"UI","Value":["1.2.840.113619.2.55.3"]},
+ "00100010": {"vr":"PN","Value":[{"Alphabetic":"Doe^Jane"}]},
+ "00080061": {"vr":"CS","Value":["CT"]},
+ "00201208": {"vr":"IS","Value":[412]},
+ "7FE00010": {"vr":"OW",
+   "BulkDataURI":".../bulkdata/7FE00010"}
+}</pre>
+<div class="tw"><table><tr><th>Tag</th><th>Keyword</th><th>VR</th></tr>
+<tr><td>0020,000D</td><td>StudyInstanceUID</td><td>UI</td></tr><tr><td>0020,000E</td><td>SeriesInstanceUID</td><td>UI</td></tr><tr><td>0008,0018</td><td>SOPInstanceUID</td><td>UI</td></tr><tr><td>0010,0010</td><td>PatientName</td><td>PN</td></tr><tr><td>0008,0020</td><td>StudyDate</td><td>DA</td></tr><tr><td>0008,0061</td><td>ModalitiesInStudy</td><td>CS</td></tr><tr><td>7FE0,0010</td><td>PixelData</td><td>OB/OW</td></tr></table></div></div></section>
+
+<section id="sim"><h2>Simulator: a pretend PACS</h2>
+<p class="lead">Pick a request. Edit the path if you like, then send. Responses come from an in-browser mock server.</p>
+<div class="pre" id="pre"></div>
+<div class="sim"><div class="card"><label for="meth">Method</label><select id="meth"><option>GET</option><option>POST</option><option>DELETE</option></select>
+<label for="path">Path (under /dicom-web)</label><input id="path" style="width:100%;padding:8px;font-family:Consolas,monospace;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--ink)">
+<label for="acc">Accept</label><select id="acc"><option>application/dicom+json</option><option>multipart/related; type="application/dicom"</option><option>image/jpeg</option></select>
+<p><button class="btn" id="send">Send request</button></p><pre id="req"></pre></div>
+<div class="card"><p>Response <span class="st" id="stat">-</span></p><pre id="res">Choose a preset, then press Send.</pre></div></div></section>
+
+<section id="viewer"><h2>Pixel demo: rendering a frame</h2>
+<p class="lead">WADO-RS <code>/rendered</code> applies window center and width to 16-bit pixel values. This synthetic CT-like slice shows what <code>window=C,W</code> does.</p>
+<div class="sim"><div><canvas id="cv" width="128" height="128" aria-label="Synthetic CT slice"></canvas></div>
+<div class="card"><label for="wc">Window center: <b id="wcv">40</b></label><input type="range" id="wc" min="-200" max="300" value="40">
+<label for="ww">Window width: <b id="wwv">400</b></label><input type="range" id="ww" min="50" max="1500" value="400">
+<div class="pre" style="margin-top:10px"><button data-c="40" data-w="400">Soft tissue</button><button data-c="-600" data-w="1500">Lung</button><button data-c="300" data-w="1500">Bone</button></div>
+<pre id="wreq"></pre></div></div></section>
+
+<section id="flow"><h2>Typical viewer workflow</h2>
+<p class="lead">How a web viewer opens a study. Press play to step through it.</p>
+<p><button class="btn" id="play">Play sequence</button></p>
+<ol class="steps" id="steps">
+<li><b>QIDO</b> <code>GET /studies?PatientID=P1001</code> lists the patient's studies.</li>
+<li><b>QIDO</b> <code>GET /studies/{s}/series</code> shows the series and modality.</li>
+<li><b>WADO</b> <code>GET /studies/{s}/metadata</code> loads tags and geometry for layout and MPR.</li>
+<li><b>WADO</b> <code>GET .../frames/1</code> fetches compressed pixels, usually in parallel and prefetched.</li>
+<li><b>Client</b> decodes (JPEG-LS, J2K, HTJ2K) and applies window/level on the GPU.</li>
+<li><b>STOW</b> <code>POST /studies</code> saves a key image, SR or segmentation back to the archive.</li></ol></section>
+
+<section id="code"><h2>Code samples</h2>
+<div class="pre tabs" id="tabs"><button class="on" data-t="curl">curl</button><button data-t="js">JavaScript</button><button data-t="cs">C#</button></div>
+<pre id="codebox"></pre></section>
+
+<section id="status"><h2>HTTP status codes</h2>
+<div class="tw"><table><tr><th>Code</th><th>Where</th><th>Meaning</th></tr>
+<tr><td>200</td><td>All</td><td>Success; STOW: all instances stored</td></tr>
+<tr><td>202</td><td>STOW, UPS</td><td>Accepted with warnings or not fully processed</td></tr>
+<tr><td>204</td><td>QIDO</td><td>No matches</td></tr>
+<tr><td>206</td><td>QIDO, WADO</td><td>Partial content (paged or partial retrieval)</td></tr>
+<tr><td>400</td><td>All</td><td>Bad request, malformed query or body</td></tr>
+<tr><td>401 / 403</td><td>All</td><td>Missing token / not allowed</td></tr>
+<tr><td>404</td><td>WADO, Delete</td><td>Resource not found</td></tr>
+<tr><td>406</td><td>WADO</td><td>Requested media type or transfer syntax not available</td></tr>
+<tr><td>409</td><td>STOW</td><td>Instances failed (e.g. study UID mismatch)</td></tr>
+<tr><td>415</td><td>STOW</td><td>Unsupported content type</td></tr>
+<tr><td>503</td><td>All</td><td>Busy, retry later</td></tr></table></div>
+<h3>Practical advice</h3>
+<ul><li>Always send <code>Authorization: Bearer</code> over HTTPS; avoid PHI in URLs where logs retain them.</li>
+<li>Request metadata once, cache it, and fetch frames lazily.</li>
+<li>Negotiate transfer syntax to avoid server transcoding at scale.</li>
+<li>Page QIDO with <code>limit</code> and <code>offset</code>; check the <code>Warning</code> header for truncation.</li></ul></section>
+</main>
+<footer><div class="w">Reference summary of DICOM PS3.18. Always check your vendor's DICOM Conformance Statement for supported options.</div></footer>
+
+<script>
+const $=id=>document.getElementById(id);
+const S="1.2.840.113619.2.55.3.1001", R="1.2.840.113619.2.55.3.1001.2", I="1.2.840.113619.2.55.3.1001.2.1";
+const tag=(t,vr,v)=>({[t]:{vr,Value:[v]}});
+const studies=[Object.assign({},tag("0020000D","UI",S),tag("00100010","PN",{Alphabetic:"Doe^Jane"}),tag("00100020","LO","P1001"),tag("00080020","DA","20260915"),tag("00080061","CS","CT"),tag("00201208","IS",412)),
+ Object.assign({},tag("0020000D","UI","1.2.840.113619.2.55.3.2002"),tag("00100010","PN",{Alphabetic:"Roe^Rick"}),tag("00100020","LO","P2002"),tag("00080020","DA","20260922"),tag("00080061","CS","MR"),tag("00201208","IS",230))];
+const series=[Object.assign({},tag("0020000E","UI",R),tag("00080060","CS","CT"),tag("00200011","IS",2),tag("0008103E","LO","Chest 1.25mm"),tag("00201209","IS",412))];
+const P={
+ "Search studies":["GET","/studies?ModalitiesInStudy=CT&limit=10","application/dicom+json"],
+ "List series":["GET","/studies/"+S+"/series","application/dicom+json"],
+ "Study metadata":["GET","/studies/"+S+"/metadata","application/dicom+json"],
+ "Get frame":["GET","/studies/"+S+"/series/"+R+"/instances/"+I+"/frames/1","image/jpeg"],
+ "Rendered image":["GET","/studies/"+S+"/series/"+R+"/instances/"+I+"/rendered?window=40,400,linear","image/jpeg"],
+ "Retrieve instance":["GET","/studies/"+S+"/series/"+R+"/instances/"+I,'multipart/related; type="application/dicom"'],
+ "Store instance":["POST","/studies",'application/dicom+json'],
+ "Delete study":["DELETE","/studies/"+S,'application/dicom+json'],
+ "No match":["GET","/studies?PatientName=Nobody*","application/dicom+json"]};
+const base="https://pacs.example.org/dicom-web";
+function setActive(n){[...$("pre").children].forEach(b=>b.classList.toggle("on",b.textContent===n))}
+Object.keys(P).forEach(n=>{const b=document.createElement("button");b.textContent=n;b.onclick=()=>{const[m,p,a]=P[n];$("meth").value=m;$("path").value=p;
+ [...$("acc").options].forEach(o=>{if(o.value===a)$("acc").value=a});setActive(n);showReq()};$("pre").appendChild(b)});
+function showReq(){$("req").textContent=$("meth").value+" "+base+$("path").value+" HTTP/1.1\nHost: pacs.example.org\nAuthorization: Bearer eyJhbGciOi...\nAccept: "+$("acc").value+($("meth").value=="POST"?'\nContent-Type: multipart/related; type="application/dicom"; boundary=XYZ':"")}
+["meth","path","acc"].forEach(i=>$(i).addEventListener("input",showReq));
+$("pre").firstChild.click();
+function mock(m,p){const[path,q=""]=p.split("?");const seg=path.split("/").filter(Boolean);const qs=new URLSearchParams(q);
+ if(seg[0]!=="studies")return[404,{},"Unknown resource"];
+ if(m==="POST")return[200,{"Content-Type":"application/dicom+json"},{"00081199":{vr:"SQ",Value:[Object.assign({},tag("00081150","UI","1.2.840.10008.5.1.4.1.1.2"),tag("00081155","UI","1.2.3.4.5"),tag("00081190","UR",base+"/studies/"+S+"/series/"+R+"/instances/1.2.3.4.5"))]}}];
+ if(seg.length===1){let r=studies.slice();const mod=qs.get("ModalitiesInStudy");if(mod)r=r.filter(s=>s["00080061"].Value[0]===mod);
+  const pn=qs.get("PatientName");if(pn)r=r.filter(s=>s["00100010"].Value[0].Alphabetic.toLowerCase().startsWith(pn.replace("*","").toLowerCase()));
+  r=r.slice(0,+qs.get("limit")||99);return r.length?[200,{"Content-Type":"application/dicom+json"},r]:[204,{},"(empty body: no matching studies)"]}
+ if(seg[1]!==S)return[404,{},"Study not found"];
+ if(m==="DELETE")return[200,{},"Study deleted (all series and instances)"];
+ const last=seg[seg.length-1];
+ if(last==="series")return[200,{"Content-Type":"application/dicom+json"},series];
+ if(last==="metadata")return[200,{"Content-Type":"application/dicom+json"},[Object.assign({},studies[0],series[0],tag("00280010","US",512),tag("00280011","US",512),tag("00280100","US",16),{"7FE00010":{vr:"OW",BulkDataURI:path.replace("metadata","")+"bulkdata/7FE00010"}})]];
+ if(last==="1"&&seg.includes("frames"))return[200,{"Content-Type":'multipart/related; type="image/jpeg"; boundary=BND'},"--BND\nContent-Type: image/jpeg\nContent-Location: ...frames/1\n\n[ 61,440 bytes of JPEG data ]\n--BND--"];
+ if(last==="rendered")return[200,{"Content-Type":"image/jpeg"},"[ binary JPEG: 512x512, window 40/400 ]"];
+ return[200,{"Content-Type":'multipart/related; type="application/dicom"; boundary=BND'},"--BND\nContent-Type: application/dicom\n\n[ DICM Part 10 file, 524,288 bytes ]\n--BND--"]}
+$("send").onclick=()=>{const[c,h,b]=mock($("meth").value,$("path").value);$("stat").textContent=c+" "+({200:"OK",204:"No Content",404:"Not Found"}[c]);
+ $("stat").style.background=c<300?"var(--ok)":"var(--a2)";
+ $("res").textContent=Object.entries(h).map(([k,v])=>k+": "+v).join("\n")+"\n\n"+(typeof b==="string"?b:JSON.stringify(b,null,1))};
+// pixel demo
+const cv=$("cv"),cx=cv.getContext("2d"),N=128,raw=new Int16Array(N*N);
+for(let y=0;y<N;y++)for(let x=0;x<N;x++){const dx=x-64,dy=y-66,r=Math.hypot(dx,dy);let v=-1000;
+ if(r<56)v=40; if(r<56&&r>51)v=700; if(Math.hypot(dx+22,dy)<20)v=-850; if(Math.hypot(dx-22,dy)<20)v=-850;
+ if(Math.hypot(dx,dy+8)<8)v=90; if(Math.hypot(dx,dy-30)<6)v=500; raw[y*N+x]=v}
+function draw(){const c=+$("wc").value,w=+$("ww").value,im=cx.createImageData(N,N);
+ for(let i=0;i<raw.length;i++){let g=Math.round(255*((raw[i]-(c-w/2))/w));g=Math.max(0,Math.min(255,g));im.data.set([g,g,g,255],i*4)}
+ cx.putImageData(im,0,0);$("wcv").textContent=c;$("wwv").textContent=w;
+ $("wreq").textContent="GET .../instances/{i}/rendered?window="+c+","+w+",linear\nAccept: image/jpeg"}
+["wc","ww"].forEach(i=>$(i).oninput=draw);
+document.querySelectorAll("#viewer .pre button").forEach(b=>b.onclick=()=>{$("wc").value=b.dataset.c;$("ww").value=b.dataset.w;draw()});draw();
+// flow
+$("play").onclick=()=>{const l=[...$("steps").children];let i=0;l.forEach(x=>x.classList.remove("on"));
+ const t=setInterval(()=>{l.forEach(x=>x.classList.remove("on"));if(i>=l.length){clearInterval(t);return}l[i++].classList.add("on")},1100)};
+// code
+const codes={
+curl:`# Search
+curl -H "Accept: application/dicom+json" \\
+     -H "Authorization: Bearer $TOKEN" \\
+     "${base}/studies?PatientID=P1001"
+
+# Store
+curl -X POST "${base}/studies" \\
+     -H 'Content-Type: multipart/related; type="application/dicom"; boundary=XYZ' \\
+     --data-binary @body.multipart
+
+# Rendered JPEG
+curl -o out.jpg "${base}/studies/{s}/series/{r}/instances/{i}/rendered?window=40,400,linear"`,
+js:`const base = "${base}";
+const hdr = { Authorization: "Bearer " + token };
+
+// QIDO
+const r = await fetch(base + "/studies?ModalitiesInStudy=CT&limit=10",
+  { headers: { ...hdr, Accept: "application/dicom+json" } });
+const studies = r.status === 204 ? [] : await r.json();
+const uid = studies[0]["0020000D"].Value[0];
+
+// WADO-RS metadata
+const meta = await (await fetch(base + "/studies/" + uid + "/metadata",
+  { headers: { ...hdr, Accept: "application/dicom+json" } })).json();`,
+cs:`using var http = new HttpClient { BaseAddress = new Uri("${base}/") };
+http.DefaultRequestHeaders.Authorization = new("Bearer", token);
+
+// QIDO-RS
+var req = new HttpRequestMessage(HttpMethod.Get, "studies?PatientID=P1001");
+req.Headers.Accept.ParseAdd("application/dicom+json");
+var json = await (await http.SendAsync(req)).Content.ReadAsStringAsync();
+
+// STOW-RS
+var content = new MultipartContent("related", "XYZ");
+var part = new ByteArrayContent(File.ReadAllBytes("image.dcm"));
+part.Headers.ContentType = new("application/dicom");
+content.Add(part);
+content.Headers.ContentType.Parameters.Add(new("type", "\\"application/dicom\\""));
+var res = await http.PostAsync("studies", content);`};
+function tab(t){$("codebox").textContent=codes[t];[...$("tabs").children].forEach(b=>b.classList.toggle("on",b.dataset.t===t))}
+[...$("tabs").children].forEach(b=>b.onclick=()=>tab(b.dataset.t));tab("curl");
+</script></body></html>
