@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>DICOM Overlay Plane Lab</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;600&family=IBM+Plex+Mono&display=swap">
+<style>
+:root{--bg:#f2f4f7;--card:#fff;--ink:#141a23;--mut:#5c6878;--acc:#0b8f84;--amb:#c77700;--line:#d9dee6;--code:#eef1f5;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media(prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0e1116;--card:#171c24;--ink:#e8ecf1;--mut:#96a2b3;--acc:#3dd6c6;--amb:#ffb454;--line:#2a323e;--code:#0e1116}}
+:root[data-theme="dark"]{--bg:#0e1116;--card:#171c24;--ink:#e8ecf1;--mut:#96a2b3;--acc:#3dd6c6;--amb:#ffb454;--line:#2a323e;--code:#0e1116}
+*,*:before,*:after{box-sizing:inherit}html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.6 "IBM Plex Sans",system-ui,sans-serif}
+main{max-width:1180px;margin:auto;padding:28px 16px 60px}
+h1{font-size:clamp(28px,5vw,44px);line-height:1.1;margin:0 0 8px;letter-spacing:-.02em}
+h2{font-size:21px;margin:36px 0 12px}h3{font-size:16px;margin:0 0 6px}
+p{margin:0 0 10px;max-width:74ch}.lead{color:var(--mut);font-size:17px;max-width:70ch}
+code,.mono{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:12.5px}
+.grid{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(0,1fr);gap:16px;margin-top:22px}
+.four{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px}
+@media(max-width:860px){.grid{grid-template-columns:1fr}}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:16px;min-width:0}
+#stack{position:relative;height:min(62vh,520px);background:#000;border-radius:6px;overflow:hidden;touch-action:none}
+#cs,.ovc{position:absolute;inset:0;width:100%;height:100%}.ovc{pointer-events:none}
+#stack.drag{outline:2px dashed var(--acc)}
+.bar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:10px}
+button,select,input[type=text],input[type=number]{font:inherit;font-size:13px;background:var(--card);color:var(--ink);border:1px solid var(--line);border-radius:6px;padding:6px 10px}
+button{cursor:pointer;border-color:var(--acc);color:var(--acc);font-weight:600}button:hover{background:var(--acc);color:var(--bg)}
+button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid var(--amb);outline-offset:2px}
+input[type=number]{width:70px}input[type=color]{width:34px;height:30px;border:0;background:none;padding:0}
+.hint{color:var(--mut);font-size:12.5px}.err{color:#e5484d;font-size:13px;min-height:18px}
+.layer{display:flex;gap:8px;align-items:center;padding:6px 0;border-bottom:1px solid var(--line);font-size:13px}
+.sw{width:12px;height:12px;border-radius:3px;flex:none}.tag{color:var(--amb)}
+.badge{background:var(--code);border:1px solid var(--line);border-radius:4px;padding:0 6px;font-size:11px}
+table{border-collapse:collapse;width:100%;font-size:13px}th,td{text-align:left;padding:6px 8px;border-bottom:1px solid var(--line);vertical-align:top}
+th{color:var(--mut);font-weight:600}.tw{overflow-x:auto}
+pre{background:var(--code);border:1px solid var(--line);border-radius:6px;padding:10px;overflow-x:auto;margin:8px 0;font-size:12px}
+details{border:1px solid var(--line);border-radius:6px;margin:8px 0;padding:6px 10px}summary{cursor:pointer;font-weight:600}
+.bits{display:flex;gap:2px;flex-wrap:wrap;margin:8px 0}.bits span{width:26px;height:26px;display:grid;place-items:center;border-radius:4px;background:var(--code);border:1px solid var(--line);font-family:"IBM Plex Mono",monospace;font-size:12px}.bits .on{background:var(--amb);color:#000;border-color:var(--amb)}
+</style></head><body><main>
+<h1>DICOM Overlay Plane Lab</h1>
+<p class="lead">Load a real <code>.dcm</code> file in your browser, or use the built-in phantom. Overlay planes (group <code>60xx</code>) are decoded from their 1-bit <code>OverlayData</code> and drawn on their own canvases above the Cornerstone image.</p>
+
+<div class="grid">
+ <section class="card">
+  <div class="bar">
+   <input type="file" id="file" accept=".dcm,application/dicom,*/*" aria-label="Choose DICOM file">
+   <button id="sample">Reload phantom</button>
+   <label class="hint">Overlay opacity <input type="range" id="op" min="0" max="1" step=".05" value="1"></label>
+  </div>
+  <div id="stack"><div id="cs"></div></div>
+  <p class="hint" style="margin-top:8px">Drag = pan · wheel = zoom · Shift+drag = window/level · drop a file onto the viewer. Demo decodes uncompressed monochrome DICOM (explicit/implicit little endian).</p>
+  <div class="err" id="msg"></div>
+ </section>
+ <aside class="card">
+  <h3>Overlay layers <span class="hint">(one canvas each)</span></h3>
+  <div id="layers"></div>
+  <h3 style="margin-top:16px">Add custom overlay</h3>
+  <div class="bar">
+   <select id="shape"><option value="rect">Rectangle</option><option value="circle">Circle</option><option value="cross">Crosshair</option><option value="grid">Grid</option><option value="text">Text</option></select>
+   <input type="text" id="txt" value="ROI" size="6" aria-label="Text">
+   <input type="color" id="col" value="#ff4d6d" aria-label="Overlay colour">
+  </div>
+  <div class="bar hint">Size <input type="number" id="ow" value="160" min="8"> × <input type="number" id="oh" value="120" min="8"></div>
+  <div class="bar hint">Origin row/col <input type="number" id="or" value="60" min="1"> <input type="number" id="oc" value="60" min="1">
+   <select id="otype"><option value="G">Type G</option><option value="R">Type R</option></select></div>
+  <button id="add">Encode &amp; add overlay</button>
+  <pre id="hex" class="hint">OverlayData preview appears here.</pre>
+ </aside>
+</div>
+
+<h2>Live pixel &amp; overlay inspector</h2>
+<div class="grid" style="margin-top:0">
+ <div class="card"><h3>Image Pixel Module values</h3><div class="tw"><table id="info"></table></div></div>
+ <div class="card"><h3>Overlay Plane Module values</h3><div id="ovinfo"></div></div>
+</div>
+
+<h2>What DICOM overlays are</h2>
+<div class="four">
+ <div class="card"><h3>Meaning</h3><p>An overlay plane is a 1-bit-per-pixel bitmap stored beside the image in repeating groups <code>6000</code>–<code>601E</code> (even groups, up to 16 planes per object). A set bit means “draw here”; a clear bit means “leave the image visible”. It carries no grey values, only a mask.</p></div>
+ <div class="card"><h3>Need</h3><p>Annotations burned into pixel data destroy diagnostic information and cannot be hidden. Overlays keep pixels untouched while still letting the modality or a workstation attach markers, ROIs, patient orientation letters, scale marks or graphics.</p></div>
+ <div class="card"><h3>Significance</h3><p>The image stays original and lossless-comparable, the annotation is toggleable, and both travel in one object with the same SOP Instance. Viewers must still honour them: a missed overlay can hide a technologist’s or CAD’s marker.</p></div>
+ <div class="card"><h3>Usage</h3><p>Ultrasound and CR text, CAD marks, ROI outlines from acquisition stations, segmentation-like masks in legacy data, DR collimation shutters as graphics, and teaching-file arrows. New work should prefer GSPS, SEG or SR, but PACS/VNA still receive <code>60xx</code> data daily.</p></div>
+</div>
+
+<h2>Overlay Plane Module (C.9.2) attributes</h2>
+<div class="card tw"><table>
+<tr><th>Tag</th><th>Attribute</th><th>VR</th><th>Meaning</th></tr>
+<tr><td class="mono">(60xx,0010)</td><td>Overlay Rows</td><td>US</td><td>Height of the overlay bitmap in pixels.</td></tr>
+<tr><td class="mono">(60xx,0011)</td><td>Overlay Columns</td><td>US</td><td>Width of the overlay bitmap in pixels.</td></tr>
+<tr><td class="mono">(60xx,0015)</td><td>Number of Frames in Overlay</td><td>IS</td><td>Frames in the overlay; absent means a single plane.</td></tr>
+<tr><td class="mono">(60xx,0022)</td><td>Overlay Description</td><td>LO</td><td>Free-text purpose of the plane.</td></tr>
+<tr><td class="mono">(60xx,0040)</td><td>Overlay Type</td><td>CS</td><td><b>G</b> graphics (annotation) or <b>R</b> ROI (region of interest, may drive statistics).</td></tr>
+<tr><td class="mono">(60xx,0045)</td><td>Overlay Subtype</td><td>LO</td><td>USER or AUTOMATED origin of the marking.</td></tr>
+<tr><td class="mono">(60xx,0050)</td><td>Overlay Origin</td><td>SS</td><td>Row\Column of the overlay’s first pixel in the image, 1-based; <code>1\1</code> aligns with the image’s top-left. Values ≤0 place it partly outside the image.</td></tr>
+<tr><td class="mono">(60xx,0051)</td><td>Image Frame Origin</td><td>US</td><td>First image frame the overlay applies to in multi-frame images.</td></tr>
+<tr><td class="mono">(60xx,0100)</td><td>Overlay Bits Allocated</td><td>US</td><td>1 for standard planes; 16 in retired embedded overlays.</td></tr>
+<tr><td class="mono">(60xx,0102)</td><td>Overlay Bit Position</td><td>US</td><td>0 for standard planes; bit index inside pixel words in retired embedded overlays.</td></tr>
+<tr><td class="mono">(60xx,1500)</td><td>Overlay Label</td><td>LO</td><td>Short name shown in the viewer’s overlay list.</td></tr>
+<tr><td class="mono">(60xx,3000)</td><td>Overlay Data</td><td>OB/OW</td><td>The bit-packed mask: Rows × Columns bits, padded to an even byte count.</td></tr>
+</table></div>
+
+<h2>How Overlay Data relates to Pixel Data</h2>
+<div class="card">
+<p><b>Pixel Data</b> <code>(7FE0,0010)</code> is described by the Image Pixel Module: Rows, Columns, Bits Allocated, Bits Stored, High Bit, Pixel Representation and Photometric Interpretation. <b>Overlay Data</b> <code>(60xx,3000)</code> has its own Rows/Columns, so an overlay may be smaller than the image and is positioned by Overlay Origin.</p>
+<p>Bits are packed <b>least-significant bit first</b>, row after row with no row padding. Pixel <i>n</i> of the overlay (row-major, 0-based) is bit <code>n mod 8</code> of byte <code>n div 8</code>. Example for eight pixels <code>1 0 1 1 0 0 0 1</code>:</p>
+<div class="bits" aria-label="Bit packing example"><span class="on">1</span><span>0</span><span class="on">1</span><span class="on">1</span><span>0</span><span>0</span><span>0</span><span class="on">1</span></div>
+<p>The first pixel goes into bit 0, so writing the byte from bit 7 down to bit 0 gives <code>10001101₂ = 0x8D</code>.</p>
+<pre>const on = (data[n >> 3] >> (n &amp; 7)) &amp; 1;   // decode pixel n
+data[n >> 3] |= 1 &lt;&lt; (n &amp; 7);               // encode pixel n</pre>
+<details><summary>Retired: overlays embedded in Pixel Data</summary><p>Older objects set Overlay Bits Allocated = 16 and store the mask in unused high bits of each pixel word (e.g. Bits Stored 12 leaves bits 12–15). Overlay Bit Position tells you which. Modern viewers should still mask those bits off before window/level or the overlay corrupts the grey values.</p></details>
+<details><summary>Rendering pipeline used on this page</summary><p>1) Parse with dicomParser. 2) Build a Cornerstone image with stored values, rescale slope/intercept and VOI window. 3) Enumerate <code>60xx3000</code> elements, unpack bits, colour them, cache as bitmaps. 4) On every <code>cornerstoneimagerendered</code> event, place each bitmap on its own canvas using <code>cornerstone.pixelToCanvas</code> and the viewport scale, so pan/zoom stay aligned.</p></details>
+<details><summary>Common pitfalls</summary><p>Treating Origin as 0-based; padding rows to bytes; forgetting even-length padding; ignoring Overlay Type R vs G; applying VOI LUT to overlay pixels; assuming all overlays are on frame 1; flipping overlays when the image is flipped or rotated.</p></details>
+</div>
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/cornerstone-core@2.6.1/dist/cornerstone.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/dicom-parser@1.8.21/dist/dicomParser.min.js"></script>
+<script>
+const $=s=>document.querySelector(s),el=$('#cs'),stack=$('#stack');
+const hex4=g=>g.toString(16).toUpperCase().padStart(4,'0'),PAL=['#ffb454','#3dd6c6','#ff4d6d','#8ea8ff','#b8e35a'];
+const pack=b=>{const o=new Uint8Array((b.length+15>>4)<<1);for(let i=0;i<b.length;i++)if(b[i])o[i>>3]|=1<<(i&7);return o};
+const unpack=(d,n)=>{const b=new Uint8Array(n);for(let i=0;i<n;i++)b[i]=d[i>>3]>>(i&7)&1;return b};
+const rgb=h=>[1,3,5].map(i=>parseInt(h.substr(i,2),16));
+let overlays=[],meta=[];cornerstone.enable(el);
+
+function shapeBits(shape,w,h,t){const c=document.createElement('canvas');c.width=w;c.height=h;const x=c.getContext('2d');
+ x.strokeStyle=x.fillStyle='#fff';const lw=x.lineWidth=Math.max(2,w/60);x.beginPath();
+ if(shape=='rect')x.strokeRect(lw,lw,w-2*lw,h-2*lw);
+ if(shape=='circle')x.arc(w/2,h/2,Math.min(w,h)/2-lw,0,7);
+ if(shape=='cross'){x.moveTo(w/2,0);x.lineTo(w/2,h);x.moveTo(0,h/2);x.lineTo(w,h/2)}
+ if(shape=='grid'){for(let i=0;i<=8;i++){x.moveTo(i*w/8,0);x.lineTo(i*w/8,h);x.moveTo(0,i*h/8);x.lineTo(w,i*h/8)}x.lineWidth=1}
+ x.stroke();
+ if(shape=='text'){x.font=`bold ${Math.min(h/2,w/(t.length||1)*1.4)}px sans-serif`;x.textAlign='center';x.textBaseline='middle';x.fillText(t,w/2,h/2)}
+ const d=x.getImageData(0,0,w,h).data,b=new Uint8Array(w*h);for(let i=0;i<b.length;i++)b[i]=d[i*4+3]>127;return b}
+
+function addOverlay(o){o.bits=unpack(o.data,o.rows*o.cols);o.color=o.color||PAL[overlays.length%PAL.length];o.on=true;
+ const bm=document.createElement('canvas');bm.width=o.cols;bm.height=o.rows;const x=bm.getContext('2d'),id=x.createImageData(o.cols,o.rows),c=rgb(o.color);
+ for(let i=0;i<o.bits.length;i++)if(o.bits[i]){id.data.set([...c,255],i*4)}x.putImageData(id,0,0);o.bmp=bm;
+ o.cv=document.createElement('canvas');o.cv.className='ovc';o.cv.style.opacity=$('#op').value;stack.appendChild(o.cv);overlays.push(o);ui();draw()}
+function clearOverlays(customToo){overlays=overlays.filter(o=>{if(o.custom&&!customToo)return true;o.cv.remove();return false});ui()}
+
+function draw(){const vp=cornerstone.getViewport(el);if(!vp||!cornerstone.getEnabledElement(el).image)return;
+ overlays.forEach(o=>{const c=o.cv;if(c.width!=el.clientWidth||c.height!=el.clientHeight){c.width=el.clientWidth;c.height=el.clientHeight}
+  const x=c.getContext('2d');x.clearRect(0,0,c.width,c.height);if(!o.on)return;
+  const p=cornerstone.pixelToCanvas(el,{x:o.oC-1,y:o.oR-1});x.imageSmoothingEnabled=false;x.drawImage(o.bmp,p.x,p.y,o.cols*vp.scale,o.rows*vp.scale)})}
+el.addEventListener('cornerstoneimagerendered',draw);
+addEventListener('resize',()=>{cornerstone.resize(el,true);draw()});
+
+function mkImage(px,rows,cols,o){let mn=1e9,mx=-1e9;for(let i=0;i<px.length;i++){const v=px[i];if(v<mn)mn=v;if(v>mx)mx=v}
+ return{imageId:'mem:'+Math.random(),minPixelValue:mn,maxPixelValue:mx,slope:o.slope||1,intercept:o.icpt||0,
+ windowCenter:o.wc??(mn+mx)/2*(o.slope||1)+(o.icpt||0),windowWidth:o.ww||Math.max(1,(mx-mn)*(o.slope||1)),getPixelData:()=>px,rows,columns:cols,height:rows,width:cols,
+ color:false,invert:!!o.inv,columnPixelSpacing:1,rowPixelSpacing:1,sizeInBytes:px.byteLength}}
+function show(img){cornerstone.displayImage(el,img);cornerstone.resize(el,true)}
+function ui(){$('#layers').innerHTML=overlays.length?'':'<p class="hint">No overlay planes in this image.</p>';
+ overlays.forEach((o,i)=>{const d=document.createElement('div');d.className='layer';
+  d.innerHTML=`<input type="checkbox" ${o.on?'checked':''} aria-label="Toggle overlay"><span class="sw" style="background:${o.color}"></span><span class="mono tag">${hex4(o.group)}</span><span class="badge">${o.type}</span><span>${o.label||'(no label)'} <span class="hint">${o.cols}×${o.rows}</span></span>${o.custom?'<button style="margin-left:auto" aria-label="Remove">✕</button>':''}`;
+  d.querySelector('input').onchange=e=>{o.on=e.target.checked;draw()};const b=d.querySelector('button');if(b)b.onclick=()=>{o.cv.remove();overlays.splice(i,1);ui()};$('#layers').appendChild(d)});
+ $('#ovinfo').innerHTML=overlays.map(o=>`<details ${o===overlays[0]?'open':''}><summary class="mono">Group ${hex4(o.group)} · ${o.label||'overlay'}</summary><table>${[['Overlay Rows',o.rows],['Overlay Columns',o.cols],['Overlay Type',o.type],['Overlay Origin (row\\col)',o.oR+'\\'+o.oC],['Bits Allocated / Position','1 / 0'],['Overlay Data bytes',o.data.length+' ('+o.rows*o.cols+' bits'+(o.data.length*8>o.rows*o.cols?' + pad':'')+')'],['Description',o.desc||'—']].map(r=>`<tr><td>${r[0]}</td><td class="mono">${r[1]}</td></tr>`).join('')}</table></details>`).join('')||'<p class="hint">No 60xx groups present.</p>';
+ $('#info').innerHTML=meta.map(r=>`<tr><td>${r[0]}</td><td class="mono">${r[1]}</td></tr>`).join('')}
+
+function phantom(){const n=512,p=new Int16Array(n*n);
+ for(let y=0;y<n;y++)for(let x=0;x<n;x++){const r=Math.hypot((x-256)/210,(y-256)/240);let v=-1000;
+  if(r<1)v=r>.9?1000:r>.86?200:40+15*Math.sin(x/9)*Math.cos(y/11);
+  if(Math.hypot((x-256)/40,(y-240)/16)<1)v=5;if(Math.hypot(x-300,y-200)<20)v=95;
+  p[y*n+x]=v+(Math.random()-.5)*14}return p}
+function loadSample(){$('#msg').textContent='';clearOverlays(false);
+ show(mkImage(phantom(),512,512,{wc:40,ww:400}));
+ meta=[['Source','Synthetic phantom'],['Rows × Columns','512 × 512'],['Bits Allocated / Stored / High','16 / 16 / 15'],['Pixel Representation','1 (signed)'],['Photometric','MONOCHROME2'],['Rescale slope / intercept','1 / 0'],['Window centre / width','40 / 400']];
+ const mk=(g,type,label,desc,shape,w,h,r,c,t)=>addOverlay({group:g,rows:h,cols:w,type,oR:r,oC:c,label,desc,data:pack(shapeBits(shape,w,h,t||''))});
+ mk(0x6000,'G','Lesion marker','Circle around finding','circle',90,90,155,255);
+ mk(0x6002,'R','ROI','Rectangular region of interest','rect',150,110,300,120);
+ mk(0x6004,'G','Side','Orientation letter','text',44,44,12,12,'R');ui()}
+
+function loadDicom(buf){$('#msg').textContent='';try{
+ const ds=dicomParser.parseDicom(new Uint8Array(buf)),bytes=ds.byteArray,ts=ds.string('x00020010')||'1.2.840.10008.1.2';
+ if(!['1.2.840.10008.1.2','1.2.840.10008.1.2.1'].includes(ts))throw Error('Transfer syntax '+ts+' is compressed or big-endian; this demo decodes uncompressed little-endian only.');
+ const rows=ds.uint16('x00280010'),cols=ds.uint16('x00280011'),ba=ds.uint16('x00280100'),pr=ds.uint16('x00280103')||0,pi=ds.string('x00280004')||'';
+ if((ds.uint16('x00280002')||1)!==1)throw Error('Colour images are not supported in this demo.');
+ const pe=ds.elements.x7fe00010;if(!pe)throw Error('No Pixel Data (7FE0,0010).');
+ const off=bytes.byteOffset+pe.dataOffset,n=rows*cols;
+ const px=ba==16?(pr?new Int16Array(bytes.buffer.slice(off,off+n*2)):new Uint16Array(bytes.buffer.slice(off,off+n*2))):new Uint8Array(bytes.buffer.slice(off,off+n));
+ const slope=parseFloat(ds.string('x00281053'))||1,icpt=parseFloat(ds.string('x00281052'))||0,wc=ds.floatString('x00281050'),ww=ds.floatString('x00281051');
+ clearOverlays(false);
+ show(mkImage(px,rows,cols,{slope,icpt,wc,ww,inv:pi.trim()=='MONOCHROME1'}));
+ meta=[['Source','Your file'],['Transfer Syntax',ts],['Rows × Columns',rows+' × '+cols],['Bits Allocated / Stored / High',ba+' / '+ds.uint16('x00280101')+' / '+ds.uint16('x00280102')],['Pixel Representation',pr+(pr?' (signed)':' (unsigned)')],['Photometric',pi],['Rescale slope / intercept',slope+' / '+icpt],['Window centre / width',(wc??'auto')+' / '+(ww??'auto')]];
+ for(let g=0x6000;g<=0x601E;g+=2){const h=g.toString(16),e=ds.elements['x'+h+'3000'];if(!e)continue;
+  const orows=ds.uint16('x'+h+'0010'),ocols=ds.uint16('x'+h+'0011'),o=bytes.byteOffset+e.dataOffset;
+  addOverlay({group:g,rows:orows,cols:ocols,type:ds.string('x'+h+'0040')||'G',oR:ds.int16('x'+h+'0050',0)??1,oC:ds.int16('x'+h+'0050',1)??1,label:ds.string('x'+h+'1500'),desc:ds.string('x'+h+'0022'),data:new Uint8Array(bytes.buffer.slice(o,o+e.length))})}
+ ui();if(!overlays.length)$('#msg').textContent='Image rendered. No overlay planes (60xx,3000) found in this file — add a custom one on the right.';
+ }catch(e){$('#msg').textContent='Could not render: '+e.message}}
+
+const readFile=f=>f&&f.arrayBuffer().then(loadDicom);
+$('#file').onchange=e=>readFile(e.target.files[0]);$('#sample').onclick=loadSample;
+stack.ondragover=e=>{e.preventDefault();stack.classList.add('drag')};stack.ondragleave=()=>stack.classList.remove('drag');
+stack.ondrop=e=>{e.preventDefault();stack.classList.remove('drag');readFile(e.dataTransfer.files[0])};
+$('#op').oninput=e=>overlays.forEach(o=>o.cv.style.opacity=e.target.value);
+$('#add').onclick=()=>{let g=0x6000;while(overlays.some(o=>o.group==g)&&g<0x601E)g+=2;
+ const w=+$('#ow').value,h=+$('#oh').value,shape=$('#shape').value,data=pack(shapeBits(shape,w,h,$('#txt').value));
+ addOverlay({group:g,rows:h,cols:w,type:$('#otype').value,oR:+$('#or').value,oC:+$('#oc').value,label:'Custom '+shape,desc:'Created in browser',data,color:$('#col').value,custom:true});
+ $('#hex').textContent=`(${hex4(g)},3000) OverlayData · ${w}×${h} bits → ${data.length} bytes\n`+[...data.slice(0,32)].map(b=>b.toString(16).padStart(2,'0')).join(' ')+(data.length>32?' …':'')};
+
+let drag=null;
+stack.onmousedown=e=>{drag={x:e.clientX,y:e.clientY,vp:JSON.parse(JSON.stringify(cornerstone.getViewport(el))),wl:e.shiftKey}};
+addEventListener('mouseup',()=>drag=null);
+addEventListener('mousemove',e=>{if(!drag)return;const dx=e.clientX-drag.x,dy=e.clientY-drag.y,v=cornerstone.getViewport(el);
+ if(drag.wl){v.voi.windowWidth=Math.max(1,drag.vp.voi.windowWidth+dx*2);v.voi.windowCenter=drag.vp.voi.windowCenter+dy*2}
+ else{v.translation.x=drag.vp.translation.x+dx/v.scale;v.translation.y=drag.vp.translation.y+dy/v.scale}cornerstone.setViewport(el,v)});
+stack.addEventListener('wheel',e=>{e.preventDefault();const v=cornerstone.getViewport(el);v.scale=Math.max(.1,v.scale*(e.deltaY<0?1.1:.9));cornerstone.setViewport(el,v)},{passive:false});
+loadSample();
+</script></body></html>
