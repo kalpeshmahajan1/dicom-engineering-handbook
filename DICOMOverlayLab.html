@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>DICOM Overlay Lab (Cornerstone)</title>
+<style>
+body{font:14px system-ui,sans-serif;margin:0;padding:14px;background:#f5f6f8;color:#1b1f24}
+h1{font-size:18px;margin:0 0 8px}h3{margin:12px 0 4px;font-size:14px}
+.row{display:flex;gap:14px;flex-wrap:wrap}.card{background:#fff;border:1px solid #d0d5dd;border-radius:8px;padding:10px}
+#vp{width:512px;height:512px;background:#000;position:relative;cursor:crosshair;max-width:100%}
+button,label{margin:2px 4px 2px 0}button{padding:4px 9px}
+pre{background:#eef1f5;padding:8px;border-radius:6px;font-size:12px;overflow:auto;max-height:230px;white-space:pre-wrap}
+table{border-collapse:collapse;font-size:12px}td,th{border:1px solid #ccd;padding:2px 6px}
+.side{flex:1;min-width:290px}small{color:#555}
+@media(prefers-color-scheme:dark){body{background:#14171c;color:#e6e9ee}.card{background:#1d2129;border-color:#394150}pre{background:#10131a}small{color:#aab}td,th{border-color:#445}}
+</style></head><body>
+<h1>DICOM Overlay Lab: read (60xx,3000) planes, toggle, and draw your own</h1>
+<div class="row">
+<div class="card"><div id="vp"></div><small>Draw mode: drag on image. Wheel = zoom. Overlays follow zoom in image space.</small></div>
+<div class="side card">
+<h3>1. Load</h3>
+<button id="bS">Synthetic (clean + overlays)</button><button id="bB">Synthetic (burned-in)</button>
+<input type="file" id="f" accept=".dcm,*/*"><div id="st"><small>Loading libraries...</small></div>
+<h3>2. Toggle planes (found in file)</h3><div id="pl"></div>
+<h3>3. Draw your own overlay (plane 6004)</h3>
+<label><input type="checkbox" id="dm"> draw mode</label>
+<label>tool <select id="tool"><option>brush</option><option>eraser</option></select></label>
+<label>size <input type="range" id="sz" min="1" max="30" value="6"></label>
+<button id="clr">Clear</button> <label><input type="checkbox" id="su" checked> show</label>
+<h3>Packed (6004,3000) preview</h3><pre id="pk">draw something...</pre>
+<button id="dl">Download Overlay Data (.bin)</button>
+</div></div>
+<div class="card" style="margin-top:12px"><h3>Overlay attributes parsed from the dataset</h3><div id="tb"></div>
+<h3>Bit decode demo</h3><pre id="dec"></pre></div>
+<script src="https://cdn.jsdelivr.net/npm/cornerstone-core@2.6.1/dist/cornerstone.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/dicom-parser@1.8.21/dist/dicomParser.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/cornerstone-wado-image-loader@4.13.2/dist/cornerstoneWADOImageLoader.bundle.min.js"></script>
+<script>
+const $=id=>document.getElementById(id),el=$('vp'),say=t=>$('st').innerHTML='<small>'+t+'</small>';
+let planes=[],U=null,UC=null,R=0,C=0,cur=null;
+const COL=[[255,230,0],[0,220,255],[255,90,200],[120,255,120]];
+// ---- Part 10 builder (Explicit VR LE) ----
+const enc=new TextEncoder();
+function E(g,e,vr,b){const lg=['OB','OW','UN'].includes(vr),n=b.length,h=new Uint8Array(lg?12:8),v=new DataView(h.buffer);
+ v.setUint16(0,g,true);v.setUint16(2,e,true);h[4]=vr.charCodeAt(0);h[5]=vr.charCodeAt(1);
+ lg?v.setUint32(8,n,true):v.setUint16(6,n,true);return cat([h,b])}
+function cat(a){const o=new Uint8Array(a.reduce((s,x)=>s+x.length,0));let p=0;a.forEach(x=>{o.set(x,p);p+=x.length});return o}
+const S=(g,e,vr,s)=>{let b=enc.encode(s);if(b.length%2)b=cat([b,[vr=='UI'?0:32]]);return E(g,e,vr,b)};
+const U16=(g,e,x)=>{const b=new Uint8Array(2);new DataView(b.buffer).setUint16(0,x,true);return E(g,e,'US',b)};
+const SS=(g,e,a)=>{const b=new Uint8Array(4),v=new DataView(b.buffer);a.forEach((x,i)=>v.setInt16(i*2,x,true));return E(g,e,'SS',b)};
+function pack(m){const b=new Uint8Array(Math.ceil(m.length/8)+(Math.ceil(m.length/8)%2));for(let n=0;n<m.length;n++)if(m[n])b[n>>3]|=1<<(n&7);return b}
+function plane(g,rows,cols,ox,oy,m,lbl){return cat([U16(g,0x10,rows),U16(g,0x11,cols),S(g,0x22,'LO',lbl),S(g,0x40,'CS','G'),SS(g,0x50,[oy,ox]),U16(g,0x100,1),U16(g,0x102,0),S(g,0x1500,'LO',lbl),E(g,0x3000,'OB',pack(m))])}
+function synth(burn){const N=256,px=new Uint16Array(N*N),m1=new Uint8Array(N*N),m2=new Uint8Array(128*128);
+ for(let r=0;r<N;r++)for(let c=0;c<N;c++){const d=Math.hypot(r-128,c-128);px[r*N+c]=d<90?1800+Math.round(900*Math.sin(d/6)):d<110?3000:200+c*4}
+ for(let r=0;r<N;r++)for(let c=0;c<N;c++){const box=(r>=30&&r<=60&&c>=30&&c<=100)&&(r<=31||r>=59||c<=31||c>=99),x=Math.abs(r-c)<2&&r>150&&c>150;m1[r*N+c]=box||x?1:0}
+ for(let r=0;r<128;r++)for(let c=0;c<128;c++){const d=Math.hypot(r-64,c-64);m2[r*128+c]=d>56&&d<60?1:0}
+ if(burn){for(let i=0;i<m1.length;i++)if(m1[i])px[i]=4095;for(let r=0;r<128;r++)for(let c=0;c<128;c++)if(m2[r*128+c])px[(r+64)*N+c+64]=4095}
+ const mt=cat([S(2,2,'UI','1.2.840.10008.5.1.4.1.1.7'),S(2,3,'UI','1.2.826.0.1.3680043.8.498.'+(burn?2:1)),S(2,0x10,'UI','1.2.840.10008.1.2.1')]);
+ const gl=new Uint8Array(4);new DataView(gl.buffer).setUint32(0,mt.length,true);
+ const pb=new Uint8Array(px.buffer);
+ const ds=[S(8,0x16,'UI','1.2.840.10008.5.1.4.1.1.7'),S(8,0x18,'UI','1.2.826.0.1.3680043.8.498.'+(burn?2:1)),S(8,0x60,'CS','OT'),
+ U16(0x28,2,1),S(0x28,4,'CS','MONOCHROME2'),U16(0x28,0x10,N),U16(0x28,0x11,N),U16(0x28,0x100,16),U16(0x28,0x101,12),U16(0x28,0x102,11),U16(0x28,0x103,0),
+ S(0x28,0x301,'CS',burn?'YES':'NO')];
+ if(!burn)ds.push(plane(0x6000,N,N,1,1,m1,'Box+cross'),plane(0x6002,128,128,65,65,m2,'Ring ROI (origin 65\\65)'));
+ ds.push(E(0x7fe0,0x10,'OW',pb));
+ return cat([new Uint8Array(128),enc.encode('DICM'),E(2,0,'UL',gl),mt,...ds])}
+// ---- overlay parsing ----
+function parse(bytes){const ds=dicomParser.parseDicom(bytes),out=[];
+ for(let k=0;k<16;k++){const g=(0x6000+2*k).toString(16),t=x=>'x'+g+x,r=ds.uint16(t('0010'));if(!r)continue;
+  const cc=ds.uint16(t('0011')),el_=ds.elements[t('3000')],o=[ds.int16(t('0050'),0)||1,ds.int16(t('0050'),1)||1];
+  const bp=ds.uint16(t('0102')),ba=ds.uint16(t('0100'));let m=new Uint8Array(r*cc);
+  if(el_){const d=ds.byteArray.subarray(el_.dataOffset,el_.dataOffset+el_.length);for(let n=0;n<m.length;n++)m[n]=(d[n>>3]>>(n&7))&1}
+  else if(ba==16){const p=ds.elements.x7fe00010,w=new Uint16Array(ds.byteArray.buffer.slice(ds.byteArray.byteOffset+p.dataOffset,ds.byteArray.byteOffset+p.dataOffset+r*cc*2));for(let n=0;n<m.length;n++)m[n]=(w[n]>>bp)&1}
+  const cv=document.createElement('canvas');cv.width=cc;cv.height=r;const cx=cv.getContext('2d'),im=cx.createImageData(cc,r),c=COL[k%4];
+  for(let n=0;n<m.length;n++)if(m[n]){im.data.set([c[0],c[1],c[2],200],n*4)}cx.putImageData(im,0,0);
+  out.push({g:'60'+g.slice(2).toUpperCase().padStart(2,'0'),r,c:cc,o,ba,bp,len:el_?el_.length:0,type:ds.string(t('0040')),lbl:ds.string(t('1500'))||'',cv,on:true,m})}
+ return{ds,out}}
+// ---- viewer ----
+function render(ev){const ctx=ev.detail.canvasContext;ctx.save();cornerstone.setToPixelCoordinateSystem(ev.detail.enabledElement,ctx);
+ ctx.imageSmoothingEnabled=false;planes.forEach(p=>{if(p.on)ctx.drawImage(p.cv,p.o[1]-1,p.o[0]-1)});
+ if(UC&&$('su').checked)ctx.drawImage(UC,0,0);ctx.restore()}
+async function show(file){const buf=new Uint8Array(await file.arrayBuffer()),res=parse(buf);planes=res.out;
+ R=res.ds.uint16('x00280010');C=res.ds.uint16('x00280011');U=new Uint8Array(R*C);UC=document.createElement('canvas');UC.width=C;UC.height=R;
+ const id=cornerstoneWADOImageLoader.wadouri.fileManager.add(file);const img=await cornerstone.loadImage(id);cornerstone.displayImage(el,img);
+ cornerstone.fitToWindow(el);say('Loaded '+C+'x'+R+'. Burned In Annotation = '+(res.ds.string('x00280301')||'(absent)')+'. Planes found: '+planes.length);ui();cornerstone.updateImage(el)}
+function ui(){$('pl').innerHTML=planes.length?'':'<small>No overlay planes. (Burned-in marks are in the pixels and cannot be toggled.)</small>';
+ planes.forEach(p=>{const l=document.createElement('label');l.innerHTML='<input type="checkbox" checked> '+p.g+' '+p.lbl;l.firstChild.onchange=e=>{p.on=e.target.checked;cornerstone.updateImage(el)};$('pl').append(l)});
+ $('tb').innerHTML='<table><tr><th>Group</th><th>Rows x Cols</th><th>Origin r\\c</th><th>Type</th><th>BitsAlloc</th><th>BitPos</th><th>(xx,3000) bytes</th><th>On pixels</th></tr>'+planes.map(p=>`<tr><td>${p.g}</td><td>${p.r}x${p.c}</td><td>${p.o[0]}\\${p.o[1]}</td><td>${p.type}</td><td>${p.ba}</td><td>${p.bp}</td><td>${p.len}</td><td>${p.m.reduce((a,b)=>a+b,0)}</td></tr>`).join('')+'</table>';
+ const p=planes[0];if(p){let s='Plane '+p.g+': first 3 packed bytes decoded (bit n = row*Cols+col, LSB first)\n';for(let b=0;b<3;b++){let v=0;for(let j=0;j<8;j++)v|=(p.m[b*8+j]||0)<<j;s+=`byte ${b}: 0x${v.toString(16).padStart(2,'0')}  bits(b7..b0)=${v.toString(2).padStart(8,'0')}  -> pixels n=${b*8}..${b*8+7}\n`}
+ $('dec').textContent=s}else $('dec').textContent='(no planes)';pk()}
+// ---- drawing ----
+let down=false;
+function paint(ev){const q=cornerstone.pageToPixel(el,ev.pageX,ev.pageY),rad=+$('sz').value,v=$('tool').value=='brush'?1:0;
+ for(let dy=-rad;dy<=rad;dy++)for(let dx=-rad;dx<=rad;dx++){if(dx*dx+dy*dy>rad*rad)continue;const x=Math.round(q.x)+dx,y=Math.round(q.y)+dy;if(x<0||y<0||x>=C||y>=R)continue;U[y*C+x]=v;
+  const cx=UC.getContext('2d');v?(cx.fillStyle='rgba(60,255,60,.8)',cx.fillRect(x,y,1,1)):cx.clearRect(x,y,1,1)}
+ cornerstone.updateImage(el)}
+el.addEventListener('mousedown',e=>{if($('dm').checked&&U){down=true;paint(e)}});
+window.addEventListener('mouseup',()=>{if(down){down=false;pk()}});
+el.addEventListener('mousemove',e=>{if(down)paint(e)});
+el.addEventListener('wheel',e=>{e.preventDefault();const v=cornerstone.getViewport(el);v.scale*=e.deltaY<0?1.1:.9;cornerstone.setViewport(el,v)},{passive:false});
+function pk(){if(!U)return;const b=pack(U),h=[...b.slice(0,32)].map(x=>x.toString(16).padStart(2,'0')).join(' ');
+ $('pk').textContent=`(6004,0010) Rows=${R}  (6004,0011) Columns=${C}\n(6004,0050) Origin=1\\1  (6004,0100)=1  (6004,0102)=0\n(6004,3000) OB, VL=${b.length} (= ceil(${R}*${C}/8) padded even)\nfirst 32 bytes:\n${h}`}
+$('clr').onclick=()=>{if(U){U.fill(0);UC.getContext('2d').clearRect(0,0,C,R);cornerstone.updateImage(el);pk()}};
+$('dl').onclick=()=>{if(!U)return;const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([pack(U)]));a.download='overlay_6004_3000.bin';a.click()};
+// ---- boot ----
+try{cornerstoneWADOImageLoader.external.cornerstone=cornerstone;cornerstoneWADOImageLoader.external.dicomParser=dicomParser;
+ cornerstone.enable(el);el.addEventListener('cornerstoneimagerendered',render);
+ $('bS').onclick=()=>show(new File([synth(false)],'overlays.dcm'));$('bB').onclick=()=>show(new File([synth(true)],'burned.dcm'));
+ $('f').onchange=e=>e.target.files[0]&&show(e.target.files[0]);$('bS').click()}
+catch(e){say('Library load failed: '+e.message+' (needs internet for CDN scripts)')}
+</script></body></html>
